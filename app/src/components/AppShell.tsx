@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { AppFooter } from "./AppFooter";
+import { BrandLogo } from "./BrandLogo";
 import type { UserRole } from "../types";
 
 export interface NavItem {
@@ -13,6 +15,7 @@ interface AppShellProps {
   nav: NavItem[];
   tab: string;
   onTab: (id: string) => void;
+  wide?: boolean;
   children: ReactNode;
 }
 
@@ -29,6 +32,7 @@ export function AppShell({
   nav,
   tab,
   onTab,
+  wide = false,
   children,
 }: AppShellProps) {
   const { user, logout } = useAuth();
@@ -58,10 +62,12 @@ export function AppShell({
 
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="brand">
-          <span className="brand-mark">SEM</span>
+          <BrandLogo variant="icon" size="xs" className="brand-icon" />
           <div>
-            <strong>Salta</strong>
-            <span>{ROLE_LABELS[user!.role]}</span>
+            <strong>SEM</strong>
+            <span>
+              Salta · {ROLE_LABELS[user!.role]}
+            </span>
           </div>
         </div>
 
@@ -90,13 +96,14 @@ export function AppShell({
         </nav>
 
         <div className="sidebar-foot">
+          <AppFooter dark />
           <button type="button" className="btn-logout" onClick={logout}>
             Cerrar sesión
           </button>
         </div>
       </aside>
 
-      <main className="main">
+      <main className={`main ${wide ? "main--wide" : ""}`}>
         <header className="page-header">
           <div>
             <h1>{title}</h1>
@@ -104,6 +111,7 @@ export function AppShell({
           </div>
         </header>
         {children}
+        <AppFooter />
       </main>
     </div>
   );

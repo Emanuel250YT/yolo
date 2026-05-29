@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
+import { AppFooter } from "./AppFooter";
+import { BrandLogo } from "./BrandLogo";
 
 interface AuthLayoutProps {
   title: string;
@@ -20,9 +22,12 @@ export function AuthLayout({
     <div className="auth-page">
       <div className="auth-card auth-card-wide">
         <div className="auth-header">
-          <p className="eyebrow">SEM · Municipalidad de Salta</p>
-          <h1>{title}</h1>
-          {subtitle && <p className="auth-sub">{subtitle}</p>}
+          <BrandLogo variant="icon" size="xs" className="auth-header-icon" />
+          <div>
+            <p className="eyebrow">SEM · Municipalidad de Salta</p>
+            <h1>{title}</h1>
+            {subtitle && <p className="auth-sub">{subtitle}</p>}
+          </div>
         </div>
 
         {children}
@@ -35,6 +40,8 @@ export function AuthLayout({
         )}
 
         {footer}
+
+        <AppFooter />
       </div>
     </div>
   );

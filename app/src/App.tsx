@@ -6,7 +6,6 @@ import { AdminDashboard } from "./pages/AdminDashboard";
 import { PermisionarioDashboard } from "./pages/PermisionarioDashboard";
 import { ConductorDashboard } from "./pages/ConductorDashboard";
 import { MunicipioDashboard } from "./pages/MunicipioDashboard";
-
 function RoleHome() {
   const { user, loading } = useAuth();
 

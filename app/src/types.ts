@@ -177,6 +177,27 @@ export interface Reservation {
   createdAt: string;
 }
 
+export interface ParkingPolygon {
+  points: [number, number][];
+}
+
+export interface ParkingZone {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  imageMimeType: string | null;
+  hasImage: boolean;
+  imageBase64?: string | null;
+  imageWidth: number | null;
+  imageHeight: number | null;
+  polygons: ParkingPolygon[];
+  slotCount: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminOverview {
   users: number;
   permits: number;
@@ -184,4 +205,5 @@ export interface AdminOverview {
   reservations: number;
   sessions: number;
   history: number;
+  parkingZones?: number;
 }

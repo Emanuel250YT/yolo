@@ -2,6 +2,7 @@ import type {
   AdminOverview,
   AuthResponse,
   HistoryEntry,
+  ParkingZone,
   Permit,
   QuotePayload,
   QuoteResult,
@@ -133,6 +134,27 @@ export const api = {
   adminReservations: () =>
     request<{ reservations: Reservation[] }>("/admin/reservations"),
   adminSpots: () => request<{ spots: Spot[] }>("/admin/spots"),
+
+  parkingZones: () => request<{ zones: ParkingZone[] }>("/parking-zones"),
+
+  adminParkingZones: () =>
+    request<{ zones: ParkingZone[] }>("/admin/parking-zones"),
+  adminParkingZone: (id: string) =>
+    request<{ zone: ParkingZone }>(`/admin/parking-zones/${id}`),
+  adminCreateParkingZone: (payload: Record<string, unknown>) =>
+    request<{ zone: ParkingZone }>("/admin/parking-zones", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminUpdateParkingZone: (id: string, payload: Record<string, unknown>) =>
+    request<{ zone: ParkingZone }>(`/admin/parking-zones/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  adminDeleteParkingZone: (id: string) =>
+    request<{ message: string }>(`/admin/parking-zones/${id}`, {
+      method: "DELETE",
+    }),
 
   // Permisionario
   permits: () => request<{ permits: Permit[] }>("/permisionario/permits"),

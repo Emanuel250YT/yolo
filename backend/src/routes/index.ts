@@ -14,6 +14,7 @@ import authRoutes from "./auth.js";
 import conductorRoutes from "./conductor.js";
 import municipioRoutes from "./municipio.js";
 import permisionarioRoutes from "./permisionario.js";
+import { listParkingZones } from "../store/parkingZones.js";
 
 const router = Router();
 
@@ -33,6 +34,10 @@ router.get("/tariffs", (_req, res) => {
 
 router.get("/shifts/status", (_req, res) => {
   res.json(getShiftStatus());
+});
+
+router.get("/parking-zones", authenticate, async (_req, res) => {
+  res.json({ zones: await listParkingZones() });
 });
 
 router.post("/quote", optionalAuth, (req, res) => {

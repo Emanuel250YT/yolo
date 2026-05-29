@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { ParkingZoneManager } from "../components/ParkingZoneManager";
+import { PermisionarioPanel } from "../components/PermisionarioPanel";
 import type {
   AdminOverview,
-  HistoryEntry,
-  Permit,
   Reservation,
   User,
   UserRole,
@@ -12,18 +12,21 @@ import type {
 
 const NAV = [
   { id: "resumen", label: "Resumen" },
-  { id: "usuarios", label: "Usuarios" },
   { id: "permisos", label: "Permisos" },
+  { id: "nuevo", label: "Nuevo permiso" },
+  { id: "sesiones", label: "Sesiones" },
   { id: "historial", label: "Historial" },
+  { id: "zonas", label: "Zonas parking" },
+  { id: "usuarios", label: "Usuarios" },
   { id: "reservas", label: "Reservas" },
 ];
+
+const OPS_TABS = new Set(["permisos", "nuevo", "sesiones", "historial"]);
 
 export function AdminDashboard() {
   const [tab, setTab] = useState("resumen");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  const [permits, setPermits] = useState<Permit[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,20 +39,21 @@ export function AdminDashboard() {
     zone: "microcentro",
   });
 
+  const permisionarios = useMemo(
+    () => users.filter((u) => u.role === "permisionario" && u.active),
+    [users],
+  );
+
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [o, u, p, h, r] = await Promise.all([
+      const [o, u, r] = await Promise.all([
         api.adminOverview(),
         api.adminUsers(),
-        api.adminPermits(),
-        api.adminHistory(),
         api.adminReservations(),
       ]);
       setOverview(o);
       setUsers(u.users);
-      setPermits(p.permits);
-      setHistory(h.history);
       setReservations(r.reservations);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar");
@@ -85,6 +89,7 @@ export function AdminDashboard() {
 
   return (
     <AppShell
+      wide
       title="Administración SEM"
       subtitle="Gestión integral del sistema"
       nav={NAV}
@@ -99,6 +104,7 @@ export function AdminDashboard() {
             [
               ["users", "Usuarios"],
               ["permits", "Permisos"],
+              ["parkingZones", "Zonas visión"],
               ["spots", "Lugares"],
               ["reservations", "Reservas"],
               ["sessions", "Sesiones"],
@@ -106,12 +112,22 @@ export function AdminDashboard() {
             ] as const
           ).map(([k, label]) => (
             <article key={k} className="stat-card">
-              <span className="stat-val">{overview[k]}</span>
+              <span className="stat-val">{overview[k] ?? 0}</span>
               <span className="stat-lbl">{label}</span>
             </article>
           ))}
         </div>
       )}
+
+      {OPS_TABS.has(tab) && (
+        <PermisionarioPanel
+          isAdmin
+          permisionarios={permisionarios}
+          activeTab={tab}
+        />
+      )}
+
+      {tab === "zonas" && <ParkingZoneManager />}
 
       {tab === "usuarios" && (
         <div className="split-panel">
@@ -233,43 +249,9 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {tab === "permisos" && (
-        <section className="panel">
-          <h2>Permisos de estacionamiento ({permits.length})</h2>
-          <div className="card-list">
-            {permits.map((p) => (
-              <article key={p.id} className="list-card">
-                <strong>{p.plate}</strong>
-                <span className="chip">{p.zone}</span>
-                <p>
-                  {p.permisionarioName} · Leg. {p.permisionarioLegajo}
-                </p>
-                <p className="meta">{p.status} · {p.vehicleType}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {tab === "historial" && (
-        <section className="panel">
-          <h2>Historial global</h2>
-          <ul className="history-list">
-            {history.map((h) => (
-              <li key={h.id}>
-                <span className={`hist-action ${h.action}`}>{h.action}</span>
-                <strong>{h.userName}</strong>
-                <p>{h.observation || "Modificación registrada"}</p>
-                <time>{new Date(h.createdAt).toLocaleString("es-AR")}</time>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {tab === "reservas" && (
         <section className="panel">
-          <h2>Reservas conductores</h2>
+          <h2>Reservas conductores ({reservations.length})</h2>
           <div className="card-list">
             {reservations.map((r) => (
               <article key={r.id} className="list-card">
@@ -285,6 +267,7 @@ export function AdminDashboard() {
           </div>
         </section>
       )}
+
     </AppShell>
   );
 }

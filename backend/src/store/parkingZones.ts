@@ -1,0 +1,199 @@
+import { prisma } from "../lib/prisma.js";
+
+export type ParkingPolygon = { points: [number, number][] };
+
+function parsePolygons(raw: unknown): ParkingPolygon[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (p): p is { points: [number, number][] } =>
+        Boolean(p) &&
+        typeof p === "object" &&
+        Array.isArray((p as ParkingPolygon).points),
+    )
+    .map((p) => ({
+      points: p.points.map(([x, y]) => [
+        Math.round(Number(x)),
+        Math.round(Number(y)),
+      ]) as [number, number][],
+    }));
+}
+
+function mapZone(z: {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  imageMimeType: string | null;
+  imageBase64: string | null;
+  imageWidth: number | null;
+  imageHeight: number | null;
+  polygons: unknown;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const polygons = parsePolygons(z.polygons);
+  return {
+    id: z.id,
+    code: z.code,
+    name: z.name,
+    description: z.description,
+    imageMimeType: z.imageMimeType,
+    hasImage: Boolean(z.imageBase64),
+    imageWidth: z.imageWidth,
+    imageHeight: z.imageHeight,
+    polygons,
+    slotCount: polygons.length,
+    enabled: z.enabled,
+    createdAt: z.createdAt.toISOString(),
+    updatedAt: z.updatedAt.toISOString(),
+  };
+}
+
+function mapZoneDetail(z: Parameters<typeof mapZone>[0]) {
+  const base = mapZone(z);
+  return {
+    ...base,
+    imageBase64: z.imageBase64,
+  };
+}
+
+export async function listParkingZones(opts?: { includeImage?: boolean }) {
+  const rows = await prisma.parkingZone.findMany({
+    orderBy: { name: "asc" },
+  });
+  if (opts?.includeImage) {
+    return rows.map(mapZoneDetail);
+  }
+  return rows.map(mapZone);
+}
+
+export async function getParkingZone(id: string) {
+  const z = await prisma.parkingZone.findUnique({ where: { id } });
+  return z ? mapZoneDetail(z) : null;
+}
+
+export async function getParkingZoneByCode(code: string) {
+  const z = await prisma.parkingZone.findUnique({
+    where: { code: code.trim().toLowerCase() },
+  });
+  return z ? mapZoneDetail(z) : null;
+}
+
+function normalizeCode(code: string) {
+  return code
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
+
+function stripBase64(data: string) {
+  const m = /^data:([^;]+);base64,(.+)$/i.exec(data.trim());
+  if (m) return { mime: m[1], data: m[2] };
+  return { mime: null as string | null, data: data.trim() };
+}
+
+export async function createParkingZone(input: {
+  code: string;
+  name: string;
+  description?: string;
+  imageMimeType?: string;
+  imageBase64?: string;
+  imageWidth?: number;
+  imageHeight?: number;
+  polygons?: ParkingPolygon[];
+  enabled?: boolean;
+}) {
+  const code = normalizeCode(input.code);
+  if (!code) throw new Error("El código de zona es obligatorio.");
+  if (!input.name?.trim()) throw new Error("El nombre es obligatorio.");
+
+  let imageMimeType = input.imageMimeType ?? null;
+  let imageBase64: string | null = null;
+  if (input.imageBase64) {
+    const parsed = stripBase64(input.imageBase64);
+    imageBase64 = parsed.data;
+    imageMimeType = parsed.mime ?? imageMimeType ?? "image/jpeg";
+  }
+
+  const polygons = parsePolygons(input.polygons ?? []);
+
+  const z = await prisma.parkingZone.create({
+    data: {
+      code,
+      name: input.name.trim(),
+      description: input.description?.trim() ?? "",
+      imageMimeType,
+      imageBase64,
+      imageWidth: input.imageWidth ?? null,
+      imageHeight: input.imageHeight ?? null,
+      polygons,
+      enabled: input.enabled !== false,
+    },
+  });
+  return mapZoneDetail(z);
+}
+
+export async function updateParkingZone(
+  id: string,
+  input: {
+    code?: string;
+    name?: string;
+    description?: string;
+    imageMimeType?: string;
+    imageBase64?: string | null;
+    imageWidth?: number;
+    imageHeight?: number;
+    polygons?: ParkingPolygon[];
+    enabled?: boolean;
+  },
+) {
+  const existing = await prisma.parkingZone.findUnique({ where: { id } });
+  if (!existing) return null;
+
+  let imageMimeType = existing.imageMimeType;
+  let imageBase64 = existing.imageBase64;
+  if (input.imageBase64 === null) {
+    imageBase64 = null;
+    imageMimeType = null;
+  } else if (input.imageBase64) {
+    const parsed = stripBase64(input.imageBase64);
+    imageBase64 = parsed.data;
+    imageMimeType = parsed.mime ?? input.imageMimeType ?? imageMimeType;
+  }
+
+  const z = await prisma.parkingZone.update({
+    where: { id },
+    data: {
+      ...(input.code !== undefined
+        ? { code: normalizeCode(input.code) }
+        : {}),
+      ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description.trim() }
+        : {}),
+      ...(input.imageWidth !== undefined
+        ? { imageWidth: input.imageWidth }
+        : {}),
+      ...(input.imageHeight !== undefined
+        ? { imageHeight: input.imageHeight }
+        : {}),
+      ...(input.polygons !== undefined
+        ? { polygons: parsePolygons(input.polygons) }
+        : {}),
+      ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+      imageMimeType,
+      imageBase64,
+    },
+  });
+  return mapZoneDetail(z);
+}
+
+export async function deleteParkingZone(id: string) {
+  const existing = await prisma.parkingZone.findUnique({ where: { id } });
+  if (!existing) return false;
+  await prisma.parkingZone.delete({ where: { id } });
+  return true;
+}

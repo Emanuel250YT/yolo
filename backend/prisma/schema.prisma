@@ -116,6 +116,23 @@ model HistoryEntry {
   createdAt   DateTime       @default(now())
 }
 
+/// Zona de visión (polígonos Ultralytics / PyTorch sobre imagen de referencia)
+model ParkingZone {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  name          String
+  description   String   @default("")
+  imageMimeType String?
+  imageBase64   String?  @db.Text
+  imageWidth    Int?
+  imageHeight   Int?
+  /// [{ "points": [[x,y], ...] }, ...]
+  polygons      Json     @default("[]")
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model Spot {
   id        String   @id @default(uuid())
   label     String

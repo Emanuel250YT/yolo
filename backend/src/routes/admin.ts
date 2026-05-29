@@ -6,13 +6,20 @@ import { listPermits } from "../store/permits.js";
 import { listReservations } from "../store/reservations.js";
 import { listSpots, upsertSpot } from "../store/spots.js";
 import { listSessions } from "../store/sessions.js";
+import {
+  createParkingZone,
+  deleteParkingZone,
+  getParkingZone,
+  listParkingZones,
+  updateParkingZone,
+} from "../store/parkingZones.js";
 import { createUser, listUsers, setPassword, updateUser } from "../store/users.js";
 
 const router = Router();
 router.use(authenticate, requireRole("admin"));
 
 router.get("/overview", async (_req, res) => {
-  const [users, permits, spots, reservations, sessions, history] =
+  const [users, permits, spots, reservations, sessions, history, parkingZones] =
     await Promise.all([
       listUsers(),
       listPermits(),
@@ -20,6 +27,7 @@ router.get("/overview", async (_req, res) => {
       listReservations(),
       listSessions(),
       listHistory({ limit: 500 }),
+      listParkingZones(),
     ]);
   res.json({
     users: users.length,
@@ -28,6 +36,7 @@ router.get("/overview", async (_req, res) => {
     reservations: reservations.length,
     sessions: sessions.length,
     history: history.length,
+    parkingZones: parkingZones.length,
   });
 });
 
@@ -125,6 +134,49 @@ router.patch("/spots/:id", async (req, res) => {
 
 router.get("/sessions", async (_req, res) => {
   res.json({ sessions: await listSessions() });
+});
+
+router.get("/parking-zones", async (_req, res) => {
+  res.json({ zones: await listParkingZones() });
+});
+
+router.get("/parking-zones/:id", async (req, res) => {
+  const zone = await getParkingZone(req.params.id);
+  if (!zone) {
+    return res.status(404).json({ error: "Zona no encontrada." });
+  }
+  res.json({ zone });
+});
+
+router.post("/parking-zones", async (req, res) => {
+  try {
+    const zone = await createParkingZone(req.body ?? {});
+    res.status(201).json({ zone });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
+router.patch("/parking-zones/:id", async (req, res) => {
+  try {
+    const zone = await updateParkingZone(req.params.id, req.body ?? {});
+    if (!zone) {
+      return res.status(404).json({ error: "Zona no encontrada." });
+    }
+    res.json({ zone });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
+router.delete("/parking-zones/:id", async (req, res) => {
+  const ok = await deleteParkingZone(req.params.id);
+  if (!ok) {
+    return res.status(404).json({ error: "Zona no encontrada." });
+  }
+  res.json({ message: "Zona eliminada." });
 });
 
 export default router;

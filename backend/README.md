@@ -13,9 +13,11 @@ API en **TypeScript**, **Express**, **Prisma** y **PostgreSQL**.
 cp .env.example .env
 # Editá DATABASE_URL y MUNICIPIO_*
 npm install
-npm run db:push    # crea tablas en PostgreSQL
+npm run db:push    # crea la base "sem" y las tablas en PostgreSQL
 npm run dev
 ```
+
+Si aparece `Database does not exist`, ejecutá `npm run db:push` (Prisma crea la base automáticamente).
 
 ## Scripts
 
