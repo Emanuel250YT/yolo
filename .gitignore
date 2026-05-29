@@ -1,4 +1,4 @@
-# Modelos y media pesados (no subir a GitHub)
+# Modelos y media pesados
 *.pt
 *.onnx
 *.mp4
@@ -6,14 +6,23 @@
 *.mov
 *.mkv
 
-# Caché Python
+# Python
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+venv/
 
-# Resultados de entrenamiento / renders
+# Node
+node_modules/
+dist/
+
+# Caché / salidas locales
 runs/
-
-# Salidas locales
 track_results.json
 renders/
+bounding_boxes.json
+
+# IDE / OS
+.DS_Store
+*.log

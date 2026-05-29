@@ -3,7 +3,7 @@ import uuid
 import json
 
 # Cambia esta ruta al video que quieres procesar
-VIDEO_PATH = r"C:\Users\Emanuel\Downloads\b.mp4"
+VIDEO_PATH = r"C:\Users\emanu\Downloads\b.mp4"
 OUTPUT_JSON = "track_results.json"
 
 model = YOLO("yolo26n.pt")
@@ -14,6 +14,7 @@ results = model.track(
     show=True,
     save=False,
     persist=True,
+    device=0
 )
 
 track_id_to_uuid = {}
