@@ -1,0 +1,13 @@
+# BoT-SORT tuned for stable multi-object tracking
+tracker_type: botsort
+track_high_thresh: 0.3
+track_low_thresh: 0.15
+new_track_thresh: 0.35
+track_buffer: 60
+match_thresh: 0.75
+fuse_score: true
+gmc_method: sparseOptFlow
+proximity_thresh: 0.45
+appearance_thresh: 0.75
+with_reid: false
+model: auto
