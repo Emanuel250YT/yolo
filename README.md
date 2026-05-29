@@ -11,6 +11,24 @@ Monorepo para la digitalización del estacionamiento medido en el microcentro de
 └── backend/              # API Express (tarifas, cotizaciones SEM)
 ```
 
+## Roles y acceso
+
+| Rol | Registro | Capacidades |
+|-----|----------|-------------|
+| **Municipio** | Solo variables de entorno | Habilitar y crear cuentas de permisionarios y administradores |
+| **Administrador** | Auto-registro (inactiva hasta habilitación municipal) | Gestión integral del SEM |
+| **Permisionario** | Auto-registro (inactiva hasta habilitación municipal) | Permisos, observaciones e historial |
+| **Conductor** | Auto-registro con datos ciudadanos | Lugares disponibles, reserva hasta **30 min** antes |
+
+Configurá en `backend/.env`:
+
+```env
+MUNICIPIO_EMAIL=municipio@salta.gob.ar
+MUNICIPIO_PASSWORD=tu-clave-segura
+```
+
+Los permisionarios y administradores pueden registrarse; la cuenta queda **inactiva** hasta que Municipio la habilite. Al intentar ingresar, el sistema avisa que el alta está pendiente.
+
 ## Inicio rápido
 
 ### 1. Backend SEM (puerto 3001)

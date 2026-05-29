@@ -1,3 +1,58 @@
+export type UserRole = "municipio" | "admin" | "permisionario" | "conductor";
+export type RegisterRole = "conductor" | "permisionario" | "admin";
+
+export interface CitizenProfile {
+  dni: string;
+  birthDate: string;
+  sex: "F" | "M" | "X";
+  firstName: string;
+  lastName: string;
+  phone: string;
+  address: string;
+  city: string;
+  province: string;
+  nationality: string;
+  plate: string | null;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  legajo: string | null;
+  zone: string | null;
+  active: boolean;
+  activationPending?: boolean;
+  citizen?: CitizenProfile | null;
+  createdByMunicipio?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+  message?: string;
+}
+
+export interface RegistrationConfig {
+  conductorRegistrationEnabled: boolean;
+  staffRegistrationEnabled: boolean;
+  staffRolesRequireActivation: string[];
+  message: string;
+}
+
+export interface RegisterPayload {
+  role: RegisterRole;
+  email: string;
+  password: string;
+  name?: string;
+  legajo?: string;
+  zone?: string;
+  citizen?: Partial<CitizenProfile>;
+}
+
 export interface HealthResponse {
   status: string;
   service: string;
@@ -67,8 +122,66 @@ export interface Session {
   checkout: (PricingBreakdown & { minutes: number }) | null;
 }
 
-export interface SessionsResponse {
-  sessions: Session[];
+export interface Permit {
+  id: string;
+  permisionarioId: string;
+  permisionarioName: string;
+  permisionarioLegajo: string | null;
+  plate: string;
+  zone: string;
+  vehicleType: "auto" | "motorcycle";
+  notes: string | null;
+  status: string;
+  startAt: string;
+  endAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export type TabId = "inicio" | "estacionar" | "cotizar" | "activas";
+export interface HistoryEntry {
+  id: string;
+  permitId: string;
+  userId: string;
+  userName: string;
+  action: "create" | "update" | "observation";
+  before?: unknown;
+  after?: unknown;
+  observation: string | null;
+  createdAt: string;
+}
+
+export interface Spot {
+  id: string;
+  label: string;
+  zone: string;
+  address: string;
+  capacity: number;
+  occupied: number;
+  enabled: boolean;
+}
+
+export interface Reservation {
+  id: string;
+  userId: string;
+  userName: string;
+  spotId: string;
+  spotLabel: string;
+  zone: string;
+  plate: string;
+  vehicleType: "auto" | "motorcycle";
+  scheduledStart: string;
+  durationMinutes: number;
+  digitalPayment: boolean;
+  pricing: PricingBreakdown;
+  status: string;
+  createdAt: string;
+}
+
+export interface AdminOverview {
+  users: number;
+  permits: number;
+  spots: number;
+  reservations: number;
+  sessions: number;
+  history: number;
+}

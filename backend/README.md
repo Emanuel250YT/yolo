@@ -2,18 +2,25 @@
 
 API Express con reglas tarifarias del estacionamiento medido.
 
-## Endpoints
+## Autenticación
 
-| Método | Ruta                        | Descripción                    |
-|--------|-----------------------------|--------------------------------|
-| GET    | `/api/health`               | Estado del servicio            |
-| GET    | `/api/tariffs`              | Tarifas y turnos               |
-| GET    | `/api/shifts/status`        | Horario de cobro actual        |
-| POST   | `/api/quote`                | Cotizar sin sesión             |
-| GET    | `/api/sessions`             | Listar sesiones                |
-| POST   | `/api/sessions`             | Iniciar estacionamiento        |
-| GET    | `/api/sessions/:id`         | Detalle de sesión              |
-| POST   | `/api/sessions/:id/checkout`| Finalizar y calcular cobro     |
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| POST | `/api/auth/login` | Iniciar sesión (JWT) |
+| POST | `/api/auth/register/conductor` | Registro público solo conductores |
+| GET | `/api/auth/me` | Usuario actual (Bearer token) |
+
+Header: `Authorization: Bearer <token>`
+
+## Endpoints por rol
+
+**Admin** (`/api/admin/*`): usuarios, overview, permisos, historial, reservas, lugares.
+
+**Permisionario** (`/api/permisionario/*`): CRUD permisos, observaciones, historial.
+
+**Conductor** (`/api/conductor/*`): lugares disponibles, reservas (máx. 30 min anticipación).
+
+**Públicos**: `/api/health`, `/api/tariffs`, `/api/shifts/status`, `/api/quote`
 
 ### Ejemplo `POST /api/quote`
 

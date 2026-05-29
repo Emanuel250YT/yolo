@@ -23,6 +23,10 @@ track_results.json
 renders/
 bounding_boxes.json
 
+# Backend datos locales (usuarios, permisos)
+backend/data/*.json
+backend/.env
+
 # IDE / OS
 .DS_Store
 *.log

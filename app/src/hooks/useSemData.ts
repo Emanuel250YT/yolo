@@ -3,16 +3,15 @@ import { api } from "../api/client";
 import type { Session, ShiftStatus, TariffsResponse } from "../types";
 
 export function useSemData() {
-  const [connected, setConnected] = useState<boolean | null>(null);
   const [tariffs, setTariffs] = useState<TariffsResponse | null>(null);
   const [shift, setShift] = useState<ShiftStatus | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setError(null);
     try {
-      await api.health();
-      setConnected(true);
       const [t, s, list] = await Promise.all([
         api.tariffs(),
         api.shiftStatus(),
@@ -21,8 +20,8 @@ export function useSemData() {
       setTariffs(t);
       setShift(s);
       setSessions(list.sessions);
-    } catch {
-      setConnected(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error");
     } finally {
       setLoading(false);
     }
@@ -30,16 +29,7 @@ export function useSemData() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 30_000);
-    return () => clearInterval(id);
   }, [refresh]);
 
-  return {
-    connected,
-    tariffs,
-    shift,
-    sessions,
-    loading,
-    refresh,
-  };
+  return { tariffs, shift, sessions, loading, error, refresh };
 }
