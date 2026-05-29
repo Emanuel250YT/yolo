@@ -1,43 +1,45 @@
 # SEM Backend
 
-API Express con reglas tarifarias del estacionamiento medido.
+API en **TypeScript**, **Express**, **Prisma** y **PostgreSQL**.
+
+## Requisitos
+
+- Node.js 20+
+- PostgreSQL 14+
+
+## Configuración
+
+```bash
+cp .env.example .env
+# Editá DATABASE_URL y MUNICIPIO_*
+npm install
+npm run db:push    # crea tablas en PostgreSQL
+npm run dev
+```
+
+## Scripts
+
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev` | Desarrollo con recarga (tsx) |
+| `npm run build` | Compila a `dist/` |
+| `npm start` | Producción (`node dist/index.js`) |
+| `npm run db:generate` | Genera cliente Prisma |
+| `npm run db:migrate` | Migraciones con historial |
+| `npm run db:push` | Sincroniza schema sin migración |
+| `npm run db:studio` | UI de datos Prisma |
 
 ## Autenticación
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | POST | `/api/auth/login` | Iniciar sesión (JWT) |
-| POST | `/api/auth/register/conductor` | Registro público solo conductores |
-| GET | `/api/auth/me` | Usuario actual (Bearer token) |
+| POST | `/api/auth/register` | Registro (conductor activo; staff inactivo) |
+| GET | `/api/auth/me` | Usuario actual |
 
-Header: `Authorization: Bearer <token>`
+## Roles
 
-## Endpoints por rol
-
-**Admin** (`/api/admin/*`): usuarios, overview, permisos, historial, reservas, lugares.
-
-**Permisionario** (`/api/permisionario/*`): CRUD permisos, observaciones, historial.
-
-**Conductor** (`/api/conductor/*`): lugares disponibles, reservas (máx. 30 min anticipación).
-
-**Públicos**: `/api/health`, `/api/tariffs`, `/api/shifts/status`, `/api/quote`
-
-### Ejemplo `POST /api/quote`
-
-```json
-{
-  "plate": "AB123CD",
-  "vehicleType": "auto",
-  "minutes": 90,
-  "digitalPayment": true
-}
-```
-
-## Desarrollo
-
-```bash
-npm install
-npm run dev
-```
-
-Puerto por defecto: **3001** (`PORT` para cambiarlo).
+- **municipio** — variables de entorno; habilita permisionarios/admin
+- **admin** — gestión integral
+- **permisionario** — permisos e historial
+- **conductor** — lugares y reservas (30 min anticipación)

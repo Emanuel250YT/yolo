@@ -1,4 +1,4 @@
-/** Tarifas y reglas operativas SEM — Ordenanza 12.170 (valores configurables). */
+/** Tarifas y reglas operativas SEM — Ordenanza 12.170 */
 
 export const TARIFFS = {
   autoPerHour: 700,

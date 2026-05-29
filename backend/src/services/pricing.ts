@@ -1,15 +1,16 @@
 import { TARIFFS } from "../config/tariffs.js";
 
-/**
- * Calcula el importe SEM según minutos de estadía.
- * - Primera hora: tarifa horaria completa (o fracción si ≤ tolerancia).
- * - Desde la 2.ª hora: fraccionamiento cada 15 minutos.
- */
+export interface PricingInput {
+  vehicleType?: "auto" | "motorcycle" | string;
+  minutes?: number;
+  digitalPayment?: boolean;
+}
+
 export function calculateAmount({
   vehicleType = "auto",
   minutes = 0,
   digitalPayment = false,
-}) {
+}: PricingInput) {
   const rate =
     vehicleType === "motorcycle"
       ? TARIFFS.motorcyclePerHour
@@ -21,7 +22,6 @@ export function calculateAmount({
 
   let total = 0;
   let remaining = minutes;
-
   const firstHourMinutes = Math.min(60, remaining);
   total += rate;
   remaining -= firstHourMinutes;
@@ -35,7 +35,7 @@ export function calculateAmount({
   return finalize(Math.round(total), digitalPayment);
 }
 
-function finalize(amount, digitalPayment) {
+function finalize(amount: number, digitalPayment: boolean) {
   const gross = amount;
   const discount =
     digitalPayment && gross > 0

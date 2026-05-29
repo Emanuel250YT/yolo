@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  municipio
+  admin
+  permisionario
+  conductor
+}
+
+enum VehicleType {
+  auto
+  motorcycle
+}
+
+enum Sex {
+  F
+  M
+  X
+}
+
+enum PermitStatus {
+  active
+  completed
+  cancelled
+}
+
+enum SessionStatus {
+  active
+  completed
+}
+
+enum ReservationStatus {
+  confirmed
+  cancelled
+}
+
+enum HistoryAction {
+  create
+  update
+  observation
+}
+
+model User {
+  id                 String          @id @default(uuid())
+  email              String          @unique
+  passwordHash       String
+  name               String
+  role               UserRole
+  legajo             String?
+  zone               String?
+  active             Boolean         @default(true)
+  activationPending  Boolean         @default(false)
+  createdByMunicipio Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  citizen            CitizenProfile?
+  permits            Permit[]
+  reservations       Reservation[]
+  historyEntries     HistoryEntry[]
+  parkingSessions    ParkingSession[]
+}
+
+model CitizenProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dni         String   @unique
+  birthDate   DateTime @db.Date
+  sex         Sex
+  firstName   String
+  lastName    String
+  phone       String
+  address     String
+  city        String
+  province    String   @default("Salta")
+  nationality String   @default("Argentina")
+  plate       String?
+}
+
+model Permit {
+  id                  String       @id @default(uuid())
+  permisionarioId     String
+  permisionario       User         @relation(fields: [permisionarioId], references: [id])
+  permisionarioName   String
+  permisionarioLegajo String?
+  plate               String
+  zone                String
+  vehicleType         VehicleType
+  notes               String?
+  status              PermitStatus @default(active)
+  startAt             DateTime     @default(now())
+  endAt               DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  history             HistoryEntry[]
+}
+
+model HistoryEntry {
+  id          String         @id @default(uuid())
+  permitId    String
+  permit      Permit         @relation(fields: [permitId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  userName    String
+  action      HistoryAction
+  before      Json?
+  after       Json?
+  observation String?
+  createdAt   DateTime       @default(now())
+}
+
+model Spot {
+  id        String   @id @default(uuid())
+  label     String
+  zone      String
+  address   String   @default("")
+  capacity  Int      @default(10)
+  occupied  Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  reservations Reservation[]
+}
+
+model Reservation {
+  id               String            @id @default(uuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id])
+  userName         String
+  spotId           String
+  spot             Spot              @relation(fields: [spotId], references: [id])
+  spotLabel        String
+  zone             String
+  plate            String
+  vehicleType      VehicleType
+  scheduledStart   DateTime
+  durationMinutes  Int
+  digitalPayment   Boolean           @default(false)
+  pricing          Json
+  status           ReservationStatus @default(confirmed)
+  cancelledAt      DateTime?
+  createdAt        DateTime          @default(now())
+}
+
+model ParkingSession {
+  id              String        @id @default(uuid())
+  plate           String
+  vehicleType     VehicleType
+  zone            String
+  digitalPayment  Boolean       @default(false)
+  permitId        String?
+  status          SessionStatus @default(active)
+  startedAt       DateTime      @default(now())
+  endedAt         DateTime?
+  checkout        Json?
+  createdById     String?
+  createdBy       User?         @relation(fields: [createdById], references: [id])
+}

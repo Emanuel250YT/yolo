@@ -33,9 +33,12 @@ Los permisionarios y administradores pueden registrarse; la cuenta queda **inact
 
 ### 1. Backend SEM (puerto 3001)
 
+Requiere **PostgreSQL**. Configurá `DATABASE_URL` en `backend/.env`.
+
 ```bash
 cd backend
 npm install
+npm run db:push
 npm run dev
 ```
 

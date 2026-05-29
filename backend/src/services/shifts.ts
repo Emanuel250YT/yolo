@@ -1,6 +1,6 @@
 import { SHIFTS } from "../config/tariffs.js";
 
-function parseTime(hhmm) {
+function parseTime(hhmm: string) {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
 }
@@ -9,25 +9,22 @@ function nowMinutes(date = new Date()) {
   return date.getHours() * 60 + date.getMinutes();
 }
 
-function inRange(minutes, start, end) {
+function inRange(minutes: number, start: number, end: number) {
   if (start <= end) return minutes >= start && minutes < end;
   return minutes >= start || minutes < end;
 }
 
-/**
- * Estado operativo simplificado según día y hora local.
- */
 export function getShiftStatus(date = new Date()) {
   const day = date.getDay();
   const minutes = nowMinutes(date);
   const isSaturday = day === 6;
   const isSunday = day === 0;
-
   const dayShift = SHIFTS.day;
   const nightShift = SHIFTS.night;
 
   let dayWindow = dayShift.weekday;
   if (isSaturday) dayWindow = dayShift.saturday;
+
   if (isSunday) {
     const canChargeNight = inRange(
       minutes,
@@ -47,15 +44,18 @@ export function getShiftStatus(date = new Date()) {
     };
   }
 
-  const dayStart = parseTime(dayWindow.start);
-  const dayEnd = parseTime(dayWindow.end);
-  const nightStart = parseTime(nightShift.daily.start);
-  const nightEnd = parseTime(nightShift.daily.end);
+  const canChargeDay = inRange(
+    minutes,
+    parseTime(dayWindow.start),
+    parseTime(dayWindow.end),
+  );
+  const canChargeNight = inRange(
+    minutes,
+    parseTime(nightShift.daily.start),
+    parseTime(nightShift.daily.end),
+  );
 
-  const canChargeDay = inRange(minutes, dayStart, dayEnd);
-  const canChargeNight = inRange(minutes, nightStart, nightEnd);
-
-  let activeShift = null;
+  let activeShift: string | null = null;
   let message = "Fuera de horario de cobro.";
   if (canChargeDay) {
     activeShift = "day";

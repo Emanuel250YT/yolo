@@ -24,7 +24,7 @@ router.use("/permisionario", permisionarioRoutes);
 router.use("/conductor", conductorRoutes);
 
 router.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "sem-backend", version: "0.2.0" });
+  res.json({ status: "ok", service: "sem-backend", version: "0.3.0" });
 });
 
 router.get("/tariffs", (_req, res) => {
@@ -53,11 +53,13 @@ router.post("/quote", optionalAuth, (req, res) => {
   });
 });
 
-router.get("/sessions", authenticate, (req, res) => {
-  let sessions = listSessions({ status: req.query.status || undefined });
-  if (req.user.role === "permisionario") {
+router.get("/sessions", authenticate, async (req, res) => {
+  let sessions = await listSessions({
+    status: typeof req.query.status === "string" ? req.query.status : undefined,
+  });
+  if (req.user!.role === "permisionario") {
     sessions = sessions.filter(
-      (s) => !s.permitId || s.zone === req.user.zone,
+      (s) => !s.permitId || s.zone === req.user!.zone,
     );
   }
   res.json({ sessions });
@@ -67,22 +69,26 @@ router.post(
   "/sessions",
   authenticate,
   requireRole("admin", "permisionario"),
-  (req, res) => {
+  async (req, res) => {
     try {
-      const session = createSession({
+      const session = await createSession({
         ...req.body,
         permitId: req.body?.permitId,
+        createdById: req.user!.id,
       });
       res.status(201).json({ session });
     } catch (err) {
-      res.status(400).json({ error: err.message });
+      const message = err instanceof Error ? err.message : "Error";
+      res.status(400).json({ error: message });
     }
   },
 );
 
-router.get("/sessions/:id", authenticate, (req, res) => {
-  const session = getSession(req.params.id);
-  if (!session) return res.status(404).json({ error: "Sesión no encontrada." });
+router.get("/sessions/:id", authenticate, async (req, res) => {
+  const session = await getSession(String(req.params.id));
+  if (!session) {
+    return res.status(404).json({ error: "Sesión no encontrada." });
+  }
   res.json({ session });
 });
 
@@ -90,15 +96,16 @@ router.post(
   "/sessions/:id/checkout",
   authenticate,
   requireRole("admin", "permisionario"),
-  (req, res) => {
+  async (req, res) => {
     try {
-      const session = checkoutSession(req.params.id, req.body ?? {});
+      const session = await checkoutSession(String(req.params.id), req.body ?? {});
       if (!session) {
         return res.status(404).json({ error: "Sesión no encontrada." });
       }
       res.json({ session });
     } catch (err) {
-      res.status(400).json({ error: err.message });
+      const message = err instanceof Error ? err.message : "Error";
+      res.status(400).json({ error: message });
     }
   },
 );

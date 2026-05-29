@@ -14,13 +14,19 @@ app.use("/api", routes);
 app.get("/", (_req, res) => {
   res.json({
     name: "SEM Backend",
-    version: "0.2.0",
-    auth: ["/api/auth/login", "/api/auth/register/conductor", "/api/auth/me"],
+    version: "0.3.0",
+    stack: "TypeScript + Express + Prisma + PostgreSQL",
   });
 });
 
-await runSeed();
+async function main() {
+  await runSeed();
+  app.listen(PORT, () => {
+    console.log(`SEM backend escuchando en http://localhost:${PORT}`);
+  });
+}
 
-app.listen(PORT, () => {
-  console.log(`SEM backend escuchando en http://localhost:${PORT}`);
+main().catch((err) => {
+  console.error("Error al iniciar:", err);
+  process.exit(1);
 });

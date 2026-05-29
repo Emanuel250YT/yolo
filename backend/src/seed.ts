@@ -1,12 +1,9 @@
-import {
-  MUNICIPIO_EMAIL,
-  MUNICIPIO_PASSWORD,
-} from "./config/auth.js";
-import { createUser, findByEmail } from "./store/users.js";
+import { MUNICIPIO_EMAIL, MUNICIPIO_PASSWORD } from "./config/auth.js";
 import { seedSpotsIfEmpty } from "./store/spots.js";
+import { createUser, findByEmail } from "./store/users.js";
 
 export async function runSeed() {
-  seedSpotsIfEmpty();
+  await seedSpotsIfEmpty();
 
   if (!MUNICIPIO_EMAIL || !MUNICIPIO_PASSWORD) {
     console.warn(
@@ -15,7 +12,7 @@ export async function runSeed() {
     return;
   }
 
-  if (!findByEmail(MUNICIPIO_EMAIL)) {
+  if (!(await findByEmail(MUNICIPIO_EMAIL))) {
     await createUser({
       email: MUNICIPIO_EMAIL,
       password: MUNICIPIO_PASSWORD,

@@ -10,39 +10,39 @@ import { listSpots } from "../store/spots.js";
 
 const router = Router();
 
-router.get("/spots", (req, res) => {
+router.get("/spots", async (req, res) => {
   const onlyAvailable = req.query.available !== "false";
-  res.json({ spots: listSpots({ onlyAvailable }) });
+  res.json({ spots: await listSpots({ onlyAvailable }) });
 });
 
 router.use(authenticate, requireRole("conductor", "admin"));
 
-router.get("/reservations", (req, res) => {
+router.get("/reservations", async (req, res) => {
   const filter =
-    req.user.role === "admin"
-      ? {}
-      : { userId: req.user.id };
-  res.json({ reservations: listReservations(filter) });
+    req.user!.role === "admin" ? {} : { userId: req.user!.id };
+  res.json({ reservations: await listReservations(filter) });
 });
 
-router.post("/reservations", (req, res) => {
+router.post("/reservations", async (req, res) => {
   try {
-    const reservation = createReservation(req.body ?? {}, req.user);
+    const reservation = await createReservation(req.body ?? {}, req.user!);
     res.status(201).json({ reservation });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
   }
 });
 
-router.delete("/reservations/:id", (req, res) => {
+router.delete("/reservations/:id", async (req, res) => {
   try {
-    const reservation = cancelReservation(req.params.id, req.user);
+    const reservation = await cancelReservation(req.params.id, req.user!);
     if (!reservation) {
       return res.status(404).json({ error: "Reserva no encontrada." });
     }
     res.json({ reservation });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
   }
 });
 

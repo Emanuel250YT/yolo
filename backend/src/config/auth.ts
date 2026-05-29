@@ -1,10 +1,8 @@
-export const ROLES = ["municipio", "admin", "permisionario", "conductor"];
+export const ROLES = ["municipio", "admin", "permisionario", "conductor"] as const;
 
-/** Roles que el público puede solicitar en el formulario de registro. */
-export const PUBLIC_REGISTER_ROLES = ["conductor", "permisionario", "admin"];
+export const PUBLIC_REGISTER_ROLES = ["conductor", "permisionario", "admin"] as const;
 
-/** Roles de personal: quedan inactivos hasta que Municipio los habilite. */
-export const STAFF_ROLES = ["permisionario", "admin"];
+export const STAFF_ROLES = ["permisionario", "admin"] as const;
 
 export const JWT_SECRET =
   process.env.JWT_SECRET ?? "sem-dev-secret-cambiar-en-produccion";
