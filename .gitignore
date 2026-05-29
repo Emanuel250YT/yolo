@@ -1,0 +1,19 @@
+# Modelos y media pesados (no subir a GitHub)
+*.pt
+*.onnx
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Caché Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Resultados de entrenamiento / renders
+runs/
+
+# Salidas locales
+track_results.json
+renders/
