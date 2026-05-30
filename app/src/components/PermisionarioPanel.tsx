@@ -52,7 +52,7 @@ export function PermisionarioPanel({
   navTarget,
   onNavHandled,
 }: PermisionarioPanelProps) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { refreshKey } = useDevTools();
   const toast = useToast();
   const [zones, setZones] = useState<ParkingZone[]>([]);
@@ -64,6 +64,7 @@ export function PermisionarioPanel({
   const [observation, setObservation] = useState("");
   const { busy: submitting, run: runSubmit } = useSubmitLock();
   const { busy: savingObs, run: runObs } = useSubmitLock();
+  const { busy: linkingMp, run: runLinkMp } = useSubmitLock();
 
   const {
     items: permits,
@@ -245,6 +246,26 @@ export function PermisionarioPanel({
         }));
         await refreshPermits();
         onTabChange?.("permisos");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error");
+      }
+    });
+  }
+
+  async function linkMercadoPago() {
+    await runLinkMp(async () => {
+      try {
+        const res = await api.mercadoPagoAuthorize();
+        if (res.linked) {
+          await refreshUser();
+          toast.info("Ya tenés Mercado Pago vinculado.");
+          return;
+        }
+        if (!res.url) {
+          toast.error("No se pudo obtener el enlace de Mercado Pago.");
+          return;
+        }
+        window.location.href = res.url;
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }
@@ -459,9 +480,15 @@ export function PermisionarioPanel({
             <button
               type="button"
               className="btn-mp"
-              disabled={submitting || !form.plate.trim()}
+              disabled={
+                submitting || !form.plate.trim() || !user?.mercadoPagoLinked
+              }
               onClick={() => createPermit("mercadopago")}
-              title="Integración MercadoPago pendiente"
+              title={
+                user?.mercadoPagoLinked
+                  ? "Cobrar con Mercado Pago"
+                  : "Vinculá Mercado Pago en Mi cuenta"
+              }
             >
               MercadoPago
             </button>
@@ -665,6 +692,67 @@ export function PermisionarioPanel({
 
       {activeTab === "plazas" && (
         <PermisionarioSpotPanel zoneCode={assignedCode} zones={zones} />
+      )}
+
+      {activeTab === "cuenta" && user && (
+        <section className="panel">
+          <h2>Mi cuenta</h2>
+          <dl className="account-details">
+            <div>
+              <dt>Nombre</dt>
+              <dd>{user.name}</dd>
+            </div>
+            <div>
+              <dt>Email</dt>
+              <dd>{user.email}</dd>
+            </div>
+            {user.legajo && (
+              <div>
+                <dt>Legajo</dt>
+                <dd>{user.legajo}</dd>
+              </div>
+            )}
+            {assignedZoneName && (
+              <div>
+                <dt>Zona(s)</dt>
+                <dd>{assignedZoneName}</dd>
+              </div>
+            )}
+          </dl>
+
+          <div className="account-mp">
+            <h3>Mercado Pago</h3>
+            {user.mercadoPagoLinked ? (
+              <p className="account-mp-status account-mp-status--linked">
+                Cuenta vinculada
+                {user.mercadoPagoLinkedAt && (
+                  <span className="account-mp-meta">
+                    {" "}
+                    · desde{" "}
+                    {new Date(user.mercadoPagoLinkedAt).toLocaleDateString(
+                      "es-AR",
+                    )}
+                  </span>
+                )}
+              </p>
+            ) : (
+              <>
+                <p className="account-mp-status">
+                  Todavía no vinculaste tu cuenta de Mercado Pago. Es necesario
+                  para cobrar permisos con pago digital.
+                </p>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={linkingMp}
+                  onClick={() => void linkMercadoPago()}
+                >
+                  {linkingMp ? "Redirigiendo…" : "Vincular Mercado Pago"}
+                </button>
+              </>
+            )}
+          </div>
+        </section>
       )}
     </>
   );

@@ -78,6 +78,11 @@ model User {
   active             Boolean         @default(true)
   activationPending  Boolean         @default(false)
   createdByMunicipio Boolean         @default(false)
+  mercadoPagoUserId      String?
+  mercadoPagoAccessToken String?      @db.Text
+  mercadoPagoRefreshToken String?     @db.Text
+  mercadoPagoLinkedAt    DateTime?
+  mercadoPagoTokenExpiresAt DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   citizen            CitizenProfile?

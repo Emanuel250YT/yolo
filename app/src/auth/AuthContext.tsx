@@ -20,6 +20,7 @@ interface AuthContextValue {
     message?: string;
   }>;
   setSessionFromResponse: (token: string, user: User) => void;
+  refreshUser: () => Promise<void>;
   logout: () => void;
   hasRole: (...roles: UserRole[]) => boolean;
 }
@@ -71,6 +72,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!getToken()) {
+      setUser(null);
+      return;
+    }
+    try {
+      const { user: me } = await api.me();
+      setUser(me);
+    } catch {
+      setToken(null);
+      setUser(null);
+    }
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -88,10 +103,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       setSessionFromResponse,
+      refreshUser,
       logout,
       hasRole,
     }),
-    [user, loading, login, register, setSessionFromResponse, logout, hasRole],
+    [
+      user,
+      loading,
+      login,
+      register,
+      setSessionFromResponse,
+      refreshUser,
+      logout,
+      hasRole,
+    ],
   );
 
   return (

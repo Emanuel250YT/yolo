@@ -17,6 +17,8 @@ export interface SafeUser {
   active: boolean;
   activationPending: boolean;
   createdByMunicipio: boolean;
+  mercadoPagoLinked?: boolean;
+  mercadoPagoLinkedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   citizen?: CitizenDto | null;

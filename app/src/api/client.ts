@@ -498,6 +498,10 @@ export const api = {
     request<{ blocks: ParkingBlock[] }>(
       `/permisionario/blocks${zoneId ? `?zoneId=${zoneId}` : ""}`,
     ),
+  mercadoPagoAuthorize: () =>
+    request<{ linked: boolean; url: string | null; mercadoPagoUserId?: string }>(
+      "/permisionario/mercadopago/authorize",
+    ),
 
   // Conductor
   spots: (available = true) =>

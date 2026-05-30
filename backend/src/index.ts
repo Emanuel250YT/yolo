@@ -1,19 +1,22 @@
 import "dotenv/config";
-import cors from "cors";
 import express from "express";
 import routes from "./routes/index.js";
+import oauthRoutes from "./routes/oauth.js";
 import { setupSwagger } from "./swagger.js";
 import { prisma } from "./lib/prisma.js";
 import { maybeExpireRecords } from "./middleware/expireRecords.js";
 import { devClockMiddleware } from "./middleware/devClock.js";
 import { ensureMunicipioAccount } from "./services/municipioAccount.js";
+import { corsMiddleware } from "./config/cors.js";
+import { getApiPublicUrl, getCorsOrigins, getFrontendUrl, isCorsPermissive } from "./config/appUrls.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 
-app.use(cors());
+app.use(corsMiddleware());
 app.use(express.json({ limit: "20mb" }));
 setupSwagger(app);
+app.use("/oauth", oauthRoutes);
 app.use("/api", devClockMiddleware, maybeExpireRecords, routes);
 
 app.get("/", (_req, res) => {
@@ -46,6 +49,12 @@ async function main() {
   app.listen(PORT, () => {
     console.log(`SEM backend escuchando en http://localhost:${PORT}`);
     console.log(`Documentación API: http://localhost:${PORT}/api/docs`);
+    console.log(`Frontend permitido (CORS): ${getCorsOrigins().join(", ")}`);
+    console.log(`URL pública API: ${getApiPublicUrl()}`);
+    console.log(`URL frontend: ${getFrontendUrl()}`);
+    if (isCorsPermissive()) {
+      console.log("[CORS] Modo permisivo: localhost + *.localto.net + orígenes de env");
+    }
   });
 }
 

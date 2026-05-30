@@ -43,6 +43,8 @@ export interface User {
   activationPending?: boolean;
   citizen?: CitizenProfile | null;
   createdByMunicipio?: boolean;
+  mercadoPagoLinked?: boolean;
+  mercadoPagoLinkedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

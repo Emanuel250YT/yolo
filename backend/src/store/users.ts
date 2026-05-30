@@ -67,8 +67,12 @@ export function sanitizeUser(user: UserWithRelations): SafeUser {
       null,
     active: user.active,
     activationPending: user.activationPending,
-    createdByMunicipio: user.createdByMunicipio,
-    createdAt: user.createdAt.toISOString(),
+  createdByMunicipio: user.createdByMunicipio,
+  mercadoPagoLinked: Boolean(
+    user.mercadoPagoUserId || user.mercadoPagoAccessToken,
+  ),
+  mercadoPagoLinkedAt: user.mercadoPagoLinkedAt?.toISOString() ?? null,
+  createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
   if (user.citizen) {

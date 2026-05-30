@@ -14,9 +14,37 @@ import { getParkingZone } from "../store/parkingZones.js";
 import { listSpotsLive, setSpotOccupancy } from "../store/spots.js";
 import { getUserAssignedZoneCodes, userCanAccessZone } from "../store/userZones.js";
 import { findById } from "../store/users.js";
+import { buildMercadoPagoAuthUrl } from "../services/mercadopagoOAuth.js";
+import { isMercadoPagoLinked } from "../store/mercadopago.js";
 
 const router = Router();
 router.use(authenticate, requireRole("admin", "permisionario", "municipio"));
+
+router.get("/mercadopago/authorize", async (req, res) => {
+  if (req.user!.role !== "permisionario") {
+    return res
+      .status(403)
+      .json({ error: "Solo permisionarios pueden vincular Mercado Pago." });
+  }
+
+  const user = await findById(req.user!.id);
+  if (!user) {
+    return res.status(404).json({ error: "Usuario no encontrado." });
+  }
+
+  if (isMercadoPagoLinked(user)) {
+    return res.json({
+      linked: true,
+      url: null,
+      mercadoPagoUserId: user.mercadoPagoUserId,
+    });
+  }
+
+  res.json({
+    linked: false,
+    url: buildMercadoPagoAuthUrl(req.user!.id),
+  });
+});
 
 router.get("/permits", async (req, res) => {
   const pagination = parsePaginationQuery(req.query as Record<string, unknown>);

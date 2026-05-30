@@ -1074,6 +1074,48 @@ button:disabled {
   font-size: 0.75rem;
 }
 
+.account-details {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.5rem;
+}
+
+.account-details dt {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-bottom: 0.15rem;
+}
+
+.account-details dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.account-mp {
+  padding-top: 1rem;
+  border-top: 1px solid rgb(0 0 0 / 8%);
+}
+
+.account-mp h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.account-mp-status {
+  margin: 0 0 1rem;
+  color: var(--muted, #555);
+}
+
+.account-mp-status--linked {
+  color: var(--ok, #1a7f37);
+  font-weight: 600;
+}
+
+.account-mp-meta {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
 .btn-logout {
   width: 100%;
   padding: 0.55rem;
