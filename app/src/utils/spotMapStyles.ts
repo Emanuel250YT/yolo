@@ -38,6 +38,13 @@ export function spotStatusOf(spot: Spot) {
   return spot.status ?? spotLiveStatus(spot);
 }
 
+export function spotStatusLabel(spot: Spot) {
+  const st = spotStatusOf(spot);
+  if (st === "available") return SPOT_STATUS_LABEL.available;
+  if (st === "held") return spot.heldByMe ? "Tu reserva" : SPOT_STATUS_LABEL.held;
+  return SPOT_STATUS_LABEL[st] ?? st;
+}
+
 export function defaultImageBounds(
   center: [number, number],
   sizeM = 90,

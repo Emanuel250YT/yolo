@@ -120,6 +120,7 @@ export function PermisionarioPanel({
   );
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const [plazasZone, setPlazasZone] = useState("");
   const { busy: loadingQr, run: runLoadQr } = useSubmitLock();
 
   const geo = useGeolocation(activeTab === "nuevo");
@@ -178,7 +179,9 @@ export function PermisionarioPanel({
 
   useEffect(() => {
     if (!zones.length && !assignedCode) return;
-    setForm((f) => ({ ...f, zone: assignedCode || zones[0]?.code || "" }));
+    const code = assignedCode || zones[0]?.code || "";
+    setForm((f) => ({ ...f, zone: code }));
+    setPlazasZone((prev) => prev || code);
   }, [assignedCode, zones]);
 
   useEffect(() => {
@@ -239,6 +242,17 @@ export function PermisionarioPanel({
     zones,
     assignedCode,
     canPickZone,
+  );
+
+  const effectivePermitZone =
+    form.zone || assignedCode || zones[0]?.code || "";
+
+  const allZoneSelectOpts = useMemo(
+    () =>
+      zones
+        .filter((z) => z.enabled)
+        .map((z) => ({ value: z.code, label: z.name })),
+    [zones],
   );
 
   const permitZoneSelectOpts = useMemo(
@@ -441,8 +455,14 @@ export function PermisionarioPanel({
                   </span>
                 </div>
                 <div className="permit-summary-item">
-                  <span className="permit-summary-label">Zona asignada</span>
-                  <strong>{assignedZoneName}</strong>
+                  <span className="permit-summary-label">
+                    {canPickZone ? "Zona del permiso" : "Zona asignada"}
+                  </span>
+                  <strong>
+                    {canPickZone
+                      ? zoneLabel(effectivePermitZone, zones)
+                      : assignedZoneName}
+                  </strong>
                 </div>
                 <div className="permit-summary-item">
                   <span className="permit-summary-label">Cobro</span>
@@ -498,6 +518,16 @@ export function PermisionarioPanel({
             className="form-grid"
             onSubmit={(e) => e.preventDefault()}
           >
+            {showZonePicker && (
+              <label>
+                Zona *
+                <SearchableSelect
+                  value={form.zone}
+                  onChange={(v) => setForm({ ...form, zone: v })}
+                  options={permitZoneSelectOpts}
+                />
+              </label>
+            )}
             <label>
               Patente *
               <input
@@ -508,16 +538,6 @@ export function PermisionarioPanel({
                 }
               />
             </label>
-            {showZonePicker && (
-              <label>
-                Zona
-                <SearchableSelect
-                  value={form.zone}
-                  onChange={(v) => setForm({ ...form, zone: v })}
-                  options={permitZoneSelectOpts}
-                />
-              </label>
-            )}
             <label>
               Vehículo
               <select
@@ -563,7 +583,7 @@ export function PermisionarioPanel({
           </form>
 
           <PermitSpotPicker
-            zoneCode={form.zone || assignedCode}
+            zoneCode={effectivePermitZone}
             zones={zones}
             selectedSpotId={selectedSpotId}
             onSpotChange={(id, spot) => {
@@ -739,7 +759,7 @@ export function PermisionarioPanel({
                         p.status === "active" && (
                           <button
                             type="button"
-                            className="btn-small btn-mp"
+                            className="btn-small"
                             disabled={loadingQr}
                             onClick={() => void showPermitQr(p)}
                           >
@@ -841,7 +861,15 @@ export function PermisionarioPanel({
       )}
 
       {activeTab === "plazas" && (
-        <PermisionarioSpotPanel zoneCode={assignedCode} zones={zones} />
+        <PermisionarioSpotPanel
+          zoneCode={plazasZone || effectivePermitZone}
+          zones={zones}
+          showZonePicker={canPickZone || permitZoneSelectOpts.length > 1}
+          zoneOptions={
+            canPickZone ? allZoneSelectOpts : permitZoneSelectOpts
+          }
+          onZoneChange={setPlazasZone}
+        />
       )}
 
       {activeTab === "cuenta" && user && (

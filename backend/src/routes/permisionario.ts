@@ -107,12 +107,18 @@ router.get("/spots/live", async (req, res) => {
   if (req.user!.role === "permisionario") {
     const codes = await getUserAssignedZoneCodes(req.user!.id);
     if (codes.length > 1) {
+      const filterZone =
+        zoneCode && codes.includes(zoneCode) ? zoneCode : undefined;
       const spots = await listSpotsLive({
+        zoneCode: filterZone,
         blockId,
         viewerUserId: req.user!.id,
       });
+      const filtered = filterZone
+        ? spots
+        : spots.filter((s) => codes.includes(s.zone));
       return res.json({
-        spots: spots.filter((s) => codes.includes(s.zone)),
+        spots: filtered,
         refreshedAt: new Date().toISOString(),
       });
     }

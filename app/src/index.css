@@ -1955,6 +1955,76 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
+.spot-card.status-available {
+  border-left: 4px solid #22c55e;
+}
+
+.spot-card.status-occupied {
+  border-left: 4px solid #ef4444;
+}
+
+.spot-card.status-held {
+  border-left: 4px solid #f59e0b;
+}
+
+.spot-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgb(1 92 180 / 12%);
+}
+
+.spot-card--clickable {
+  cursor: default;
+}
+
+.spot-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+}
+
+.spot-card-action {
+  margin-top: 0.65rem;
+}
+
+.spot-status-grid-wrap {
+  margin-top: 0.75rem;
+}
+
+.spot-status-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.spot-status-count {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+}
+
+.spot-status-more {
+  margin-top: 0.75rem;
+}
+
+.block-select-meta {
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 0.25rem;
+}
+
+.status-chip.status-available {
+  border-left: 3px solid #22c55e;
+}
+
+.status-chip.status-occupied {
+  border-left: 3px solid #ef4444;
+}
+
+.status-chip.status-held {
+  border-left: 3px solid #f59e0b;
+}
+
 .spot-card.status-held {
   border-style: dashed;
 }
@@ -3622,37 +3692,6 @@ textarea {
 .payment-code-help {
   margin: 0;
   font-size: 0.88rem;
-  color: var(--muted, #555);
-}
-
-.permit-spot-picker {
-  margin: 1.25rem 0;
-  padding: 1rem;
-  border-radius: 12px;
-  border: 1px solid rgb(0 0 0 / 8%);
-  background: rgb(0 0 0 / 2%);
-}
-
-.permit-spot-picker-title {
-  margin: 0 0 0.35rem;
-  font-size: 1.05rem;
-}
-
-.permit-spot-picker-head .panel-desc {
-  margin: 0 0 0.75rem;
-}
-
-.permit-spot-selected {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
-}
-
-.permit-spot-geo-hint {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-}
-
-.permit-spot-geo-hint.muted {
   color: var(--muted, #555);
 }
 
