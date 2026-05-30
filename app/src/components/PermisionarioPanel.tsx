@@ -23,6 +23,7 @@ import type { EntityNavTarget } from "../utils/entityNav";
 import type {
   HistoryEntry,
   ParkingZone,
+  PaymentOrderInfo,
   Permit,
   PricingBreakdown,
   QuoteResult,
@@ -110,6 +111,9 @@ export function PermisionarioPanel({
 
   const [cashQuote, setCashQuote] = useState<QuoteResult | null>(null);
   const [mpQuote, setMpQuote] = useState<QuoteResult | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<PaymentOrderInfo | null>(
+    null,
+  );
 
   const isStaff = user?.role === "admin" || user?.role === "municipio";
   const canPickZone = isStaff;
@@ -170,29 +174,32 @@ export function PermisionarioPanel({
 
   const minutes = form.hours * 60;
 
+  const hasDigitalDiscount = (tariffs?.digitalDiscountRate ?? 0) > 0;
+
   useEffect(() => {
     if (activeTab !== "nuevo") return;
     let cancelled = false;
     (async () => {
       try {
-        const [cash, mp] = await Promise.all([
-          api.quote({
-            vehicleType: form.vehicleType,
-            minutes,
-            digitalPayment: false,
-            plate: form.plate || undefined,
-          }),
-          api.quote({
-            vehicleType: form.vehicleType,
-            minutes,
-            digitalPayment: true,
-            plate: form.plate || undefined,
-          }),
-        ]);
-        if (!cancelled) {
-          setCashQuote(cash);
-          setMpQuote(mp);
+        const cash = await api.quote({
+          vehicleType: form.vehicleType,
+          minutes,
+          digitalPayment: false,
+          plate: form.plate || undefined,
+        });
+        if (cancelled) return;
+        setCashQuote(cash);
+        if (!hasDigitalDiscount) {
+          setMpQuote(null);
+          return;
         }
+        const mp = await api.quote({
+          vehicleType: form.vehicleType,
+          minutes,
+          digitalPayment: true,
+          plate: form.plate || undefined,
+        });
+        if (!cancelled) setMpQuote(mp);
       } catch {
         if (!cancelled) {
           setCashQuote(null);
@@ -203,7 +210,16 @@ export function PermisionarioPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, form.vehicleType, form.hours, form.plate, minutes]);
+  }, [
+    activeTab,
+    form.vehicleType,
+    form.hours,
+    form.plate,
+    minutes,
+    hasDigitalDiscount,
+  ]);
+
+  const mpNet = hasDigitalDiscount ? mpQuote?.net : cashQuote?.net;
 
   const permitZoneOptions = zoneOptionsForPermit(
     zones,
@@ -230,7 +246,7 @@ export function PermisionarioPanel({
     }
     await runSubmit(async () => {
       try {
-        await api.createPermit({
+        const res = await api.createPermit({
           plate: form.plate,
           zone: form.zone || assignedCode,
           vehicleType: form.vehicleType,
@@ -245,7 +261,12 @@ export function PermisionarioPanel({
           zone: assignedCode,
         }));
         await refreshPermits();
-        onTabChange?.("permisos");
+        if (res.payment) {
+          setPendingPayment(res.payment);
+          toast.info("Mostrá el QR al conductor para completar el pago.");
+        } else {
+          onTabChange?.("permisos");
+        }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }
@@ -321,6 +342,42 @@ export function PermisionarioPanel({
 
   return (
     <>
+      {pendingPayment && (
+        <div className="payment-qr-modal" role="dialog" aria-modal="true">
+          <div className="payment-qr-card panel">
+            <h2>Pago Mercado Pago</h2>
+            <p>
+              El conductor debe escanear el QR o abrir el enlace para pagar{" "}
+              <strong>${pendingPayment.amount.toLocaleString("es-AR")}</strong>.
+            </p>
+            <img
+              className="payment-qr-image"
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(pendingPayment.paymentUrl)}`}
+              alt={`QR de pago orden ${pendingPayment.orderId}`}
+              width={220}
+              height={220}
+            />
+            <p className="payment-qr-link">
+              <a href={pendingPayment.paymentUrl} target="_blank" rel="noreferrer">
+                {pendingPayment.paymentUrl}
+              </a>
+            </p>
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setPendingPayment(null);
+                  onTabChange?.("permisos");
+                }}
+              >
+                Listo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab !== "nuevo" && (
         <ShiftBanner shift={shift} tariffs={tariffs} />
       )}
@@ -386,8 +443,10 @@ export function PermisionarioPanel({
                     </strong>
                     <span className="permit-summary-meta">
                       Efectivo
-                      {mpQuote && mpQuote.digitalDiscount > 0
-                        ? ` · MP $${mpQuote.net.toLocaleString("es-AR")}`
+                      {hasDigitalDiscount &&
+                      mpQuote &&
+                      mpQuote.net < cashQuote.net
+                        ? ` · Mercado Pago $${mpQuote.net.toLocaleString("es-AR")} (−${Math.round((tariffs?.digitalDiscountRate ?? 0) * 100)}%)`
                         : ""}
                     </span>
                   </div>
@@ -475,7 +534,11 @@ export function PermisionarioPanel({
               disabled={submitting || !form.plate.trim()}
               onClick={() => createPermit("cash")}
             >
-              {submitting ? "Registrando…" : "Registrar pago en efectivo"}
+              {submitting
+                ? "Registrando…"
+                : cashQuote
+                  ? `Efectivo · $${cashQuote.net.toLocaleString("es-AR")}`
+                  : "Registrar pago en efectivo"}
             </button>
             <button
               type="button"
@@ -490,7 +553,11 @@ export function PermisionarioPanel({
                   : "Vinculá Mercado Pago en Mi cuenta"
               }
             >
-              MercadoPago
+              {submitting
+                ? "Registrando…"
+                : mpNet != null
+                  ? `Mercado Pago · $${mpNet.toLocaleString("es-AR")}`
+                  : "Mercado Pago"}
             </button>
           </div>
             </>

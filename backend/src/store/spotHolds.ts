@@ -7,6 +7,11 @@ import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { createReservation, validateSchedule } from "./reservations.js";
 import { expireStaleHolds } from "./spots.js";
+import { createPaymentOrder } from "./paymentOrders.js";
+import {
+  findMercadoPagoCollectorForZone,
+  isMercadoPagoLinked,
+} from "./mercadopago.js";
 
 export async function createSpotHold(
   spotId: string,
@@ -113,6 +118,43 @@ export async function confirmSpotHold(
 
   const digital =
     paymentMethod === "mercadopago" ? true : hold.digitalPayment;
+
+  if (paymentMethod === "mercadopago") {
+    const spot = await prisma.spot.findUnique({ where: { id: hold.spotId } });
+    if (!spot) throw new Error("Plaza no encontrada.");
+
+    const collector = await findMercadoPagoCollectorForZone(spot.zone);
+    if (!collector || !isMercadoPagoLinked(collector)) {
+      throw new Error(
+        "No hay permisionario con Mercado Pago vinculado en esta zona.",
+      );
+    }
+
+    const pricing = hold.pricing as { net?: number };
+    const amount = Number(pricing?.net ?? 0);
+    if (amount <= 0) {
+      throw new Error("El monto a cobrar debe ser mayor a cero.");
+    }
+
+    const payment = await createPaymentOrder({
+      kind: "spot_hold",
+      entityId: hold.id,
+      permisionarioId: collector.id,
+      title: `Reserva SEM · ${hold.plate}`,
+      description: `Plaza ${spot.label} · ${hold.durationMinutes} min`,
+      amount,
+      expiresAt: hold.expiresAt,
+      metadata: {
+        userId: user.id,
+        userName: user.name,
+        spotLabel: spot.label,
+        zone: spot.zone,
+        holdRef: hold.ref,
+      },
+    });
+
+    return { payment, paymentMethod };
+  }
 
   const reservation = await createReservation(
     {

@@ -190,6 +190,30 @@ export interface Permit {
   updatedAt: string;
 }
 
+export interface PaymentOrderInfo {
+  orderId: string;
+  preferenceId: string;
+  amount: number;
+  currencyId: string;
+  status: string;
+  title: string;
+  description?: string | null;
+  paymentUrl: string;
+  initPoint?: string | null;
+}
+
+export interface PaymentOrderPublic {
+  orderId: string;
+  amount: number;
+  currencyId: string;
+  preferenceId: string;
+  status: string;
+  title: string;
+  description?: string | null;
+  paymentUrl: string;
+  paidAt?: string | null;
+}
+
 export interface HistoryEntry {
   id: string;
   permitId: string | null;

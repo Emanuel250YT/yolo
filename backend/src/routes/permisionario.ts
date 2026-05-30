@@ -157,8 +157,8 @@ router.patch("/spots/:id/occupancy", async (req, res) => {
 
 router.post("/permits", async (req, res) => {
   try {
-    const permit = await createPermit(req.body ?? {}, req.user!);
-    res.status(201).json({ permit });
+    const result = await createPermit(req.body ?? {}, req.user!);
+    res.status(201).json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
     res.status(400).json({ error: message });

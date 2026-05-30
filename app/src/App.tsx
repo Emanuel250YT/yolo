@@ -8,6 +8,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { PermisionarioDashboard } from "./pages/PermisionarioDashboard";
 import { ConductorDashboard } from "./pages/ConductorDashboard";
+import { PaymentBrickPage } from "./pages/PaymentBrickPage";
 import { MunicipioDashboard } from "./pages/MunicipioDashboard";
 function RoleHome() {
   const { user, loading } = useAuth();
@@ -66,6 +67,7 @@ export default function App() {
                   </PublicOnly>
                 }
               />
+              <Route path="/payment-brick" element={<PaymentBrickPage />} />
               <Route path="/" element={<RoleHome />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

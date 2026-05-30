@@ -11,6 +11,8 @@ import { expireStalePermits } from "../services/expiry.js";
 import type { AuthActor } from "../types/api.js";
 import { getTariffs } from "./tariffs.js";
 import { addHistoryEntry } from "./history.js";
+import { createPaymentOrder } from "./paymentOrders.js";
+import { isMercadoPagoLinked } from "./mercadopago.js";
 
 const PERMIT_ROLES = new Set(["admin", "permisionario", "municipio"]);
 
@@ -168,13 +170,50 @@ export async function createPermit(
       durationMinutes,
       pricing,
       paymentMethod,
-      paidAt: new Date(),
+      paidAt: paymentMethod === "cash" ? new Date() : null,
       startAt,
       endAt,
     },
   });
 
   const mapped = mapPermit(permit);
+
+  if (paymentMethod === "mercadopago") {
+    const permisionario = await prisma.user.findUnique({
+      where: { id: actor.id },
+    });
+    if (!permisionario || !isMercadoPagoLinked(permisionario)) {
+      throw new Error("Vinculá Mercado Pago en Mi cuenta antes de cobrar digitalmente.");
+    }
+
+    const payment = await createPaymentOrder({
+      kind: "permit",
+      entityId: permit.id,
+      permisionarioId: actor.id,
+      title: `Permiso SEM · ${permit.plate}`,
+      description: `Estacionamiento ${permit.zone} · ${durationMinutes} min`,
+      amount: pricing.net,
+      metadata: {
+        plate: permit.plate,
+        zone: permit.zone,
+        permitRef: permit.ref,
+      },
+    });
+
+    await addHistoryEntry({
+      permitId: permit.id,
+      userId: actor.id,
+      userName: actor.name,
+      action: "create",
+      entityRef: permit.ref,
+      entityLabel: permit.plate,
+      after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
+      observation: `Permiso creado · pago MP pendiente · $${pricing.net} · orden ${payment.orderId}`,
+    });
+
+    return { permit: mapped, payment };
+  }
+
   await addHistoryEntry({
     permitId: permit.id,
     userId: actor.id,
@@ -183,10 +222,10 @@ export async function createPermit(
     entityRef: permit.ref,
     entityLabel: permit.plate,
     after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
-    observation: `Pago ${paymentMethod === "cash" ? "en efectivo" : "MercadoPago (simulado)"} · $${pricing.net}`,
+    observation: `Pago ${paymentMethod === "cash" ? "en efectivo" : "MercadoPago"} · $${pricing.net}`,
   });
 
-  return mapped;
+  return { permit: mapped };
 }
 
 function isStaff(actor: AuthActor) {

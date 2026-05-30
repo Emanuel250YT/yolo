@@ -18,7 +18,8 @@ type RefModel =
   | "spot"
   | "parkingZone"
   | "parkingBlock"
-  | "spotHold";
+  | "spotHold"
+  | "paymentOrder";
 
 async function refTaken(model: RefModel, ref: string): Promise<boolean> {
   switch (model) {
@@ -38,6 +39,8 @@ async function refTaken(model: RefModel, ref: string): Promise<boolean> {
       return Boolean(await prisma.parkingBlock.findUnique({ where: { ref } }));
     case "spotHold":
       return Boolean(await prisma.spotHold.findUnique({ where: { ref } }));
+    case "paymentOrder":
+      return Boolean(await prisma.paymentOrder.findUnique({ where: { ref } }));
     default:
       return true;
   }

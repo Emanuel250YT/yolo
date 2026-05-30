@@ -15,6 +15,7 @@ import authRoutes from "./auth.js";
 import conductorRoutes from "./conductor.js";
 import municipioRoutes from "./municipio.js";
 import permisionarioRoutes from "./permisionario.js";
+import paymentsRoutes from "./payments.js";
 import { listParkingZones } from "../store/parkingZones.js";
 import {
   paginationMeta,
@@ -27,6 +28,7 @@ router.use("/auth", authRoutes);
 router.use("/municipio", municipioRoutes);
 router.use("/admin", adminRoutes);
 router.use("/permisionario", permisionarioRoutes);
+router.use("/payments", paymentsRoutes);
 router.use("/conductor", conductorRoutes);
 
 router.get("/health", (_req, res) => {

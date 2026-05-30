@@ -21,6 +21,8 @@ import type {
   Tariffs,
   TariffsResponse,
   User,
+  PaymentOrderInfo,
+  PaymentOrderPublic,
 } from "../types";
 import { getDevHeaders } from "../dev/devConfig";
 
@@ -456,10 +458,13 @@ export const api = {
       `/permisionario/permits${buildQuery(query)}`,
     ),
   createPermit: (payload: Record<string, unknown>) =>
-    request<{ permit: Permit }>("/permisionario/permits", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+    request<{ permit: Permit; payment?: PaymentOrderInfo }>(
+      "/permisionario/permits",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
   updatePermit: (id: string, payload: Record<string, unknown>) =>
     request<{ permit: Permit }>(`/permisionario/permits/${id}`, {
       method: "PATCH",
@@ -539,9 +544,26 @@ export const api = {
       method: "DELETE",
     }),
   paySpotHold: (holdId: string, paymentMethod: "cash" | "mercadopago") =>
-    request<{ reservation: Reservation; paymentMethod: string }>(
-      `/conductor/holds/${holdId}/pay`,
-      { method: "POST", body: JSON.stringify({ paymentMethod }) },
+    request<{
+      reservation?: Reservation;
+      payment?: PaymentOrderInfo;
+      paymentMethod: string;
+    }>(`/conductor/holds/${holdId}/pay`, {
+      method: "POST",
+      body: JSON.stringify({ paymentMethod }),
+    }),
+
+  getPaymentOrder: (orderId: string) =>
+    request<{ order: PaymentOrderPublic; publicKey: string }>(
+      `/payments/orders/${encodeURIComponent(orderId)}`,
+    ),
+  processPayment: (orderId: string, formData: Record<string, unknown>) =>
+    request<{ status: string; paymentId?: string; order?: PaymentOrderInfo }>(
+      "/payments/process",
+      {
+        method: "POST",
+        body: JSON.stringify({ orderId, formData }),
+      },
     ),
   reservations: (query?: ListQuery) =>
     request<PaginatedList<"reservations", Reservation>>(

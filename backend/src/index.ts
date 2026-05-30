@@ -9,6 +9,7 @@ import { devClockMiddleware } from "./middleware/devClock.js";
 import { ensureMunicipioAccount } from "./services/municipioAccount.js";
 import { corsMiddleware } from "./config/cors.js";
 import { getApiPublicUrl, getCorsOrigins, getFrontendUrl, isCorsPermissive } from "./config/appUrls.js";
+import { startMercadoPagoTokenRefreshJob } from "./services/mpTokenRefreshJob.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -47,6 +48,7 @@ async function main() {
   }
 
   app.listen(PORT, () => {
+    startMercadoPagoTokenRefreshJob();
     console.log(`SEM backend escuchando en http://localhost:${PORT}`);
     console.log(`Documentación API: http://localhost:${PORT}/api/docs`);
     console.log(`Frontend permitido (CORS): ${getCorsOrigins().join(", ")}`);

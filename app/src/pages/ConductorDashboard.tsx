@@ -308,7 +308,11 @@ export function ConductorDashboard() {
     await runPay(async () => {
       setError(null);
       try {
-        await api.paySpotHold(activeHold.id, method);
+        const res = await api.paySpotHold(activeHold.id, method);
+        if (res.payment?.paymentUrl) {
+          window.location.href = res.payment.paymentUrl;
+          return;
+        }
         setActiveHold(null);
         setSelectedSpotId(null);
         await load();
