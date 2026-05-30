@@ -407,7 +407,7 @@ export function ParkingZoneManager({
           Vista general de todas las zonas delimitadas. Los colores indican
           ocupación según plazas registradas.
         </p>
-        <ZonesMap spots={[]} zones={mapZones} height={320} />
+        <ZonesMap spots={[]} zones={mapZones} height={320} liveRefresh />
       </section>
 
       <section className="panel">

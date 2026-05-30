@@ -273,7 +273,7 @@ export function ConductorDashboard() {
   }, [tab]);
 
   useEffect(() => {
-    if (tab !== "lugares") return;
+    if (tab !== "inicio" && tab !== "lugares") return;
     refreshLiveSpots();
     const id = window.setInterval(() => {
       refreshLiveSpots();
@@ -552,7 +552,7 @@ export function ConductorDashboard() {
             estacionamiento activo con tu patente. Reservá en la zona que elijas
             y pagá con Mercado Pago en {holdPaymentMinutesMp} minutos.
           </p>
-          <ZonesMap spots={spots} onZoneSelect={setMapZone} selectedZone={mapZone} />
+          <ZonesMap onZoneSelect={setMapZone} selectedZone={mapZone} />
           <div className="stat-grid">
             <article className="stat-card">
               <span className="stat-val">{vehicleCount}</span>

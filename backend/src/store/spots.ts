@@ -350,11 +350,6 @@ export async function reconcileSpotOccupancy(now = getNow()) {
     expected.set(r.spotId, (expected.get(r.spotId) ?? 0) + 1);
   }
 
-  const { getDevSimOccupiedSpotIds } = await import("../services/devSpotSimState.js");
-  for (const spotId of getDevSimOccupiedSpotIds()) {
-    expected.set(spotId, (expected.get(spotId) ?? 0) + 1);
-  }
-
   const spotIds = new Set<string>([
     ...expected.keys(),
     ...(await prisma.spot.findMany({

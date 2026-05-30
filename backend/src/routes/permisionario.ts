@@ -7,6 +7,7 @@ import {
   createPermit,
   extendPermitSession,
   getPermit,
+  listControlPermits,
   listPermits,
   updatePermit,
 } from "../store/permits.js";
@@ -62,6 +63,11 @@ router.get("/permits", async (req, res) => {
     return res.json({ permits: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
   }
   res.json({ permits: result.items, ...paginationMeta(result) });
+});
+
+router.get("/control", async (req, res) => {
+  const permits = await listControlPermits(req.user!);
+  res.json({ permits });
 });
 
 router.get("/zones/:id", async (req, res) => {

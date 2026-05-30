@@ -314,8 +314,8 @@ export function DevToolsPanel() {
           <section className="dev-tools-section">
             <p className="dev-tools-label">Simular ocupación (mapas)</p>
             <p className="dev-tools-hint">
-              Ocupa plazas al azar en la zona cada 5 s – 1 min. Al llegar al
-              total, rota plazas para ver zonas calientes en tiempo real.
+              Crea reservas confirmadas al instante (ocupan plazas en el
+              backend); cada una vence en 10–60 s con expiración real.
             </p>
             <label>
               Zona

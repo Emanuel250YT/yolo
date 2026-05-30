@@ -17,6 +17,7 @@ import { PaymentOrderDisplay } from "./PaymentOrderDisplay";
 import { PriceCard } from "./PriceCard";
 import { SearchableSelect } from "./SearchableSelect";
 import { ShiftBanner } from "./ShiftBanner";
+import { ZonesMap } from "./ZonesMap";
 import {
   zoneCodeForUser,
   zoneLabel,
@@ -68,6 +69,30 @@ function formatGraceRemaining(graceUntil: string | null | undefined) {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${String(s).padStart(2, "0")} restantes`;
+}
+
+function permitDeadlineIso(permit: Permit) {
+  if (permit.status === "grace" && permit.graceUntil) return permit.graceUntil;
+  return permit.endAt;
+}
+
+function formatControlRemaining(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - getDevNowMs();
+  if (ms <= 0) return "Vencido";
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function remainingMs(iso: string | null | undefined) {
+  if (!iso) return Number.POSITIVE_INFINITY;
+  return new Date(iso).getTime() - getDevNowMs();
 }
 
 export function PermisionarioPanel({
@@ -144,6 +169,9 @@ export function PermisionarioPanel({
   const { busy: extending, run: runExtend } = useSubmitLock();
   const [extendHours, setExtendHours] = useState(1);
   const [graceTick, setGraceTick] = useState(0);
+  const [controlPermits, setControlPermits] = useState<Permit[]>([]);
+  const [controlLoading, setControlLoading] = useState(false);
+  const [controlTick, setControlTick] = useState(0);
 
   const geo = useGeolocation(activeTab === "nuevo");
 
@@ -173,6 +201,41 @@ export function PermisionarioPanel({
   useEffect(() => {
     void loadMeta();
   }, [loadMeta, refreshKey]);
+
+  useEffect(() => {
+    if (activeTab !== "control") return;
+    let cancelled = false;
+    setControlLoading(true);
+    void api
+      .permisionarioControl()
+      .then((r) => {
+        if (!cancelled) setControlPermits(r.permits);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : "Error al cargar control");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setControlLoading(false);
+      });
+    const poll = window.setInterval(() => {
+      void api
+        .permisionarioControl()
+        .then((r) => setControlPermits(r.permits))
+        .catch(() => null);
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+    };
+  }, [activeTab, refreshKey, toast]);
+
+  useEffect(() => {
+    if (activeTab !== "control") return;
+    const id = window.setInterval(() => setControlTick((t) => t + 1), 1_000);
+    return () => window.clearInterval(id);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!navTarget) return;
@@ -693,6 +756,87 @@ export function PermisionarioPanel({
           </div>
             </>
           )}
+        </section>
+      )}
+
+      {activeTab === "control" && (
+        <section className="panel">
+          <h2>Control de permisos</h2>
+          <p className="panel-desc">
+            Permisos activos y en tolerancia, ordenados del que vence antes al
+            que más tiempo le queda. El contador se actualiza en vivo.
+          </p>
+
+          <ZonesMap zones={zones} height={280} />
+
+          {controlLoading && controlPermits.length === 0 ? (
+            <p className="info-inline">Cargando…</p>
+          ) : controlPermits.length === 0 ? (
+            <p className="empty">No hay permisos activos en este momento.</p>
+          ) : (
+            <div className="control-queue" aria-live="polite">
+              <table className="control-queue-table">
+                <thead>
+                  <tr>
+                    <th>Patente</th>
+                    <th>Estado</th>
+                    <th>Tiempo restante</th>
+                    <th>Zona</th>
+                    <th>Plaza</th>
+                    <th>Vence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {controlPermits.map((p) => {
+                    const deadline = permitDeadlineIso(p);
+                    const msLeft = remainingMs(deadline);
+                    const urgent = msLeft > 0 && msLeft <= 5 * 60_000;
+                    const expired = msLeft <= 0;
+                    return (
+                      <tr
+                        key={p.id}
+                        className={`control-queue-row${urgent ? " urgent" : ""}${expired ? " expired" : ""}`}
+                      >
+                        <td>
+                          <strong>{p.plate}</strong>
+                        </td>
+                        <td>
+                          <span
+                            className={`chip${p.status === "grace" ? " chip-warn" : ""}`}
+                          >
+                            {PERMIT_STATUS_LABELS[p.status] ?? p.status}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`control-remaining${urgent ? " urgent" : ""}`}
+                          >
+                            {formatControlRemaining(deadline)}
+                          </span>
+                        </td>
+                        <td>{zoneLabel(p.zone, zones)}</td>
+                        <td>{p.spotLabel ?? "—"}</td>
+                        <td className="meta">
+                          {deadline
+                            ? new Date(deadline).toLocaleString("es-AR", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {/* controlTick fuerza re-render del contador cada segundo */}
+          <span className="sr-only" aria-hidden="true">
+            {controlTick}
+          </span>
         </section>
       )}
 

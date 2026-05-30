@@ -121,6 +121,34 @@ export async function listPermits(opts: {
   return paginatedResult(permits.map(mapPermit), total, opts.pagination);
 }
 
+function controlDeadlineMs(p: {
+  status: string;
+  endAt: Date | null;
+  graceUntil: Date | null;
+}) {
+  if (p.status === "grace" && p.graceUntil) {
+    return p.graceUntil.getTime();
+  }
+  return p.endAt?.getTime() ?? Number.POSITIVE_INFINITY;
+}
+
+/** Permisos activos o en tolerancia, del más próximo a vencer al que más le queda. */
+export async function listControlPermits(actor: AuthActor) {
+  await expireStalePermits();
+  const where: Prisma.PermitWhereInput = {
+    status: { in: ["active", "grace"] },
+    ...(actor.role === "permisionario"
+      ? { permisionarioId: actor.id }
+      : {}),
+  };
+  const permits = await prisma.permit.findMany({
+    where,
+    include: permitInclude,
+  });
+  permits.sort((a, b) => controlDeadlineMs(a) - controlDeadlineMs(b));
+  return permits.map(mapPermit);
+}
+
 export async function getPermit(id: string) {
   await expireStalePermits();
   const p = await prisma.permit.findUnique({

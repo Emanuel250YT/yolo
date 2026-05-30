@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 
 const NAV = [
+  { id: "control", label: "Control" },
   { id: "permisos", label: "Permisos" },
   { id: "nuevo", label: "Nuevo permiso" },
   { id: "plazas", label: "Plazas" },
@@ -55,7 +56,7 @@ export function PermisionarioDashboard() {
       tab={tab}
       onTab={handleTabChange}
       mobileDock={{
-        left: { tabId: "plazas", label: "Plazas" },
+        left: { tabId: "control", label: "Control" },
         center: { tabId: "nuevo", label: "Nuevo permiso" },
         right: { action: "menu", label: "Mi perfil" },
       }}

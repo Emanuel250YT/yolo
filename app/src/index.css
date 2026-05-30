@@ -1739,6 +1739,67 @@ button:disabled {
   border-radius: 3px;
 }
 
+.zones-map-legend .legend-live {
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.control-queue {
+  margin-top: 1.25rem;
+  overflow-x: auto;
+}
+
+.control-queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.control-queue-table th,
+.control-queue-table td {
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.control-queue-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.control-queue-row.urgent {
+  background: #fff7ed;
+}
+
+.control-queue-row.expired {
+  opacity: 0.65;
+}
+
+.control-remaining {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.control-remaining.urgent {
+  color: #c2410c;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .zone-map-label {
   background: transparent !important;
   border: none !important;

@@ -21,6 +21,7 @@ import type {
   Tariffs,
   TariffsResponse,
   User,
+  UserRole,
   DevSpotSimStatus,
   PaymentOrderInfo,
   PaymentOrderPublic,
@@ -495,6 +496,8 @@ export const api = {
     request<PaginatedList<"permits", Permit>>(
       `/permisionario/permits${buildQuery(query)}`,
     ),
+  permisionarioControl: () =>
+    request<{ permits: Permit[] }>("/permisionario/control"),
   createPermit: (payload: Record<string, unknown>) =>
     request<{ permit: Permit; payment?: PaymentOrderInfo }>(
       "/permisionario/permits",
@@ -676,3 +679,29 @@ export const api = {
       ),
     }),
 };
+
+/** Plazas en vivo según rol (endpoint correcto por panel). */
+export async function fetchLiveSpotsForRole(
+  role: UserRole | undefined,
+  opts?: { zone?: string },
+): Promise<Spot[]> {
+  if (!role) return [];
+  if (role === "conductor") {
+    return (await api.spotsLive(opts)).spots;
+  }
+  if (role === "admin") {
+    let spots = (await api.adminSpotsLive()).spots;
+    if (opts?.zone) {
+      spots = spots.filter((s) => s.zone === opts.zone);
+    }
+    return spots;
+  }
+  if (role === "municipio") {
+    let spots = (await api.municipioSpotsLive()).spots;
+    if (opts?.zone) {
+      spots = spots.filter((s) => s.zone === opts.zone);
+    }
+    return spots;
+  }
+  return (await api.permisionarioSpotsLive(opts)).spots;
+}

@@ -131,8 +131,34 @@ export function resolveZoneGeoList(
     .filter((z): z is ZoneGeo => z != null);
 }
 
-export function zoneOccupancy(spots: Spot[], zoneCode: string) {
-  const inZone = spots.filter((s) => s.zone === zoneCode);
+export function spotsInZone(
+  spots: Spot[],
+  zone: { code: string; id?: string },
+  polygon?: [number, number][],
+): Spot[] {
+  const code = zone.code.toLowerCase();
+  let inZone = spots.filter((s) => {
+    if (s.zone?.toLowerCase() === code) return true;
+    if (zone.id && s.parkingZoneId === zone.id) return true;
+    return false;
+  });
+  if (!inZone.length && polygon?.length) {
+    inZone = spots.filter(
+      (s) =>
+        s.lat != null &&
+        s.lng != null &&
+        pointInPolygon(s.lat, s.lng, polygon),
+    );
+  }
+  return inZone;
+}
+
+export function zoneOccupancy(
+  spots: Spot[],
+  zone: { code: string; id?: string },
+  polygon?: [number, number][],
+) {
+  const inZone = spotsInZone(spots, zone, polygon);
   if (!inZone.length) return 0;
   const taken = inZone.filter((s) => {
     if (s.status) return s.status === "occupied" || s.status === "held";
