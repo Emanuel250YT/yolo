@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { PaymentBrickLoader } from "../components/MercadoPagoPaymentBrick";
+import { MercadoPagoSecureAppButton } from "../components/MercadoPagoSecureAppButton";
 import { PaymentOrderDisplay } from "../components/PaymentOrderDisplay";
 import type { PaymentOrderPublic } from "../types";
 
@@ -16,6 +17,14 @@ export function PaymentBrickPage() {
   const [error, setError] = useState<string | null>(null);
   const [paid, setPaid] = useState(false);
 
+  const loadOrder = useCallback(async () => {
+    const res = await api.getPaymentOrder(orderId);
+    setOrder(res.order);
+    setPublicKey(res.publicKey);
+    if (res.order.status === "paid") setPaid(true);
+    return res.order;
+  }, [orderId]);
+
   useEffect(() => {
     if (!orderId) {
       setError("Falta el parámetro order-id.");
@@ -27,14 +36,7 @@ export function PaymentBrickPage() {
     setLoading(true);
     setError(null);
 
-    api
-      .getPaymentOrder(orderId)
-      .then((res) => {
-        if (cancelled) return;
-        setOrder(res.order);
-        setPublicKey(res.publicKey);
-        if (res.order.status === "paid") setPaid(true);
-      })
+    loadOrder()
       .catch((err) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "No se pudo cargar la orden.");
@@ -46,7 +48,25 @@ export function PaymentBrickPage() {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [orderId, loadOrder]);
+
+  useEffect(() => {
+    if (!orderId || paid) return;
+    if (returnStatus !== "success" && returnStatus !== "pending") return;
+
+    let cancelled = false;
+    const poll = window.setInterval(() => {
+      void loadOrder().then((o) => {
+        if (cancelled || o.status !== "paid") return;
+        setPaid(true);
+      });
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+    };
+  }, [orderId, returnStatus, paid, loadOrder]);
 
   const handlePaid = useCallback(() => {
     setPaid(true);
@@ -124,9 +144,18 @@ export function PaymentBrickPage() {
           El pago anterior no se completó. Intentá de nuevo.
         </p>
       )}
+      {(returnStatus === "success" || returnStatus === "pending") && (
+        <p className="payment-brick-return">
+          Volviste de Mercado Pago. Si el pago fue aprobado, se confirmará en
+          unos segundos.
+        </p>
+      )}
 
-      <div className="payment-brick-form">
+      <section className="payment-brick-section payment-brick-section--primary">
         <h3 className="payment-brick-form-title">Completar pago</h3>
+        <p className="payment-brick-section-desc">
+          Tarjeta, Rapipago, Pago Fácil y otros medios disponibles.
+        </p>
         <PaymentBrickLoader
           key={order.orderId}
           publicKey={publicKey}
@@ -135,7 +164,21 @@ export function PaymentBrickPage() {
           preferenceId={order.preferenceId}
           onPaid={handlePaid}
         />
-      </div>
+      </section>
+
+      <section className="payment-brick-section payment-brick-section--alt">
+        <h3 className="payment-brick-form-title">¿Preferís la app?</h3>
+        <p className="payment-brick-section-desc">
+          Si no querés pagar desde el formulario embebido, abrí el checkout
+          seguro de Mercado Pago en la app o en el navegador.
+        </p>
+        <MercadoPagoSecureAppButton
+          initPoint={order.initPoint}
+          preferenceId={order.preferenceId}
+          amount={order.amount}
+          currencyId={order.currencyId}
+        />
+      </section>
     </div>
   );
 }

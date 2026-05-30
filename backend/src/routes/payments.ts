@@ -28,6 +28,7 @@ router.get("/orders/:orderId", async (req, res) => {
       title: order.title,
       description: order.description,
       paymentUrl: order.paymentUrl,
+      initPoint: order.initPoint,
       paidAt: order.paidAt,
     },
     publicKey,

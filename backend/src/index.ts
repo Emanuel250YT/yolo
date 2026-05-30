@@ -10,6 +10,8 @@ import { ensureMunicipioAccount } from "./services/municipioAccount.js";
 import { corsMiddleware } from "./config/cors.js";
 import { getApiPublicUrl, getCorsOrigins, getFrontendUrl, isCorsPermissive } from "./config/appUrls.js";
 import { startMercadoPagoTokenRefreshJob } from "./services/mpTokenRefreshJob.js";
+import { startActiveExpiryJob } from "./services/activeExpiryJob.js";
+import devRoutes from "./routes/dev.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -18,6 +20,7 @@ app.use(corsMiddleware());
 app.use(express.json({ limit: "20mb" }));
 setupSwagger(app);
 app.use("/oauth", oauthRoutes);
+app.use("/api/dev", devRoutes);
 app.use("/api", devClockMiddleware, maybeExpireRecords, routes);
 
 app.get("/", (_req, res) => {
@@ -48,6 +51,7 @@ async function main() {
   }
 
   app.listen(PORT, () => {
+    startActiveExpiryJob();
     startMercadoPagoTokenRefreshJob();
     console.log(`SEM backend escuchando en http://localhost:${PORT}`);
     console.log(`Documentación API: http://localhost:${PORT}/api/docs`);

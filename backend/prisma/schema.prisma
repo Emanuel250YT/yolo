@@ -29,6 +29,7 @@ enum Sex {
 
 enum PermitStatus {
   active
+  grace
   completed
   cancelled
 }
@@ -157,6 +158,7 @@ model Permit {
   locationLat         Float?
   locationLng         Float?
   status              PermitStatus   @default(active)
+  graceUntil          DateTime?
   startAt             DateTime       @default(now())
   endAt               DateTime?
   createdAt           DateTime       @default(now())

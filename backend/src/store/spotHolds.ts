@@ -1,6 +1,6 @@
 import { getNow, getNowMs } from "../services/devClock.js";
 import type { VehicleType } from "../prisma/client.js";
-import { SPOT_HOLD_MS } from "../config/reservations.js";
+import { SPOT_HOLD_MP_MS, spotHoldMs } from "../config/reservations.js";
 import { calculateAmount } from "../services/pricing.js";
 import { getTariffs } from "./tariffs.js";
 import { prisma } from "../lib/prisma.js";
@@ -64,7 +64,8 @@ export async function createSpotHold(
     free: spot.spotType === "gratuita",
   });
 
-  const expiresAt = new Date(getNowMs() + SPOT_HOLD_MS);
+  const holdMs = spotHoldMs(Boolean(input.digitalPayment));
+  const expiresAt = new Date(getNowMs() + holdMs);
 
   const hold = await prisma.spotHold.create({
     data: {
@@ -97,7 +98,7 @@ export async function createSpotHold(
       expiresAt: hold.expiresAt.toISOString(),
       createdAt: hold.createdAt.toISOString(),
     },
-    paymentDeadlineMs: SPOT_HOLD_MS,
+    paymentDeadlineMs: holdMs,
   };
 }
 
@@ -113,7 +114,10 @@ export async function confirmSpotHold(
   if (hold.userId !== user.id) throw new Error("No autorizado.");
   if (hold.expiresAt.getTime() <= getNowMs()) {
     await prisma.spotHold.delete({ where: { id: holdId } });
-    throw new Error("Se agotaron los 10 minutos para pagar. Elegí la plaza nuevamente.");
+    const mins = hold.digitalPayment ? 5 : 10;
+    throw new Error(
+      `Se agotaron los ${mins} minutos para pagar. Elegí la plaza nuevamente.`,
+    );
   }
 
   const digital =
@@ -136,6 +140,12 @@ export async function confirmSpotHold(
       throw new Error("El monto a cobrar debe ser mayor a cero.");
     }
 
+    const mpExpiresAt = new Date(getNowMs() + SPOT_HOLD_MP_MS);
+    await prisma.spotHold.update({
+      where: { id: hold.id },
+      data: { expiresAt: mpExpiresAt, digitalPayment: true },
+    });
+
     const payment = await createPaymentOrder({
       kind: "spot_hold",
       entityId: hold.id,
@@ -143,7 +153,7 @@ export async function confirmSpotHold(
       title: `Reserva SEM · ${hold.plate}`,
       description: `Plaza ${spot.label} · ${hold.durationMinutes} min`,
       amount,
-      expiresAt: hold.expiresAt,
+      expiresAt: mpExpiresAt,
       metadata: {
         userId: user.id,
         userName: user.name,

@@ -3,7 +3,9 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { listHistory } from "../store/history.js";
 import {
   addObservation,
+  completePermitCheckout,
   createPermit,
+  extendPermitSession,
   getPermit,
   listPermits,
   updatePermit,
@@ -183,6 +185,41 @@ router.patch("/permits/:id", async (req, res) => {
       return res.status(404).json({ error: "Permiso no encontrado." });
     }
     res.json({ permit });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
+router.post("/permits/:id/complete", async (req, res) => {
+  try {
+    const permit = await completePermitCheckout(req.params.id, req.user!);
+    if (!permit) {
+      return res.status(404).json({ error: "Permiso no encontrado." });
+    }
+    res.json({ permit, message: "Vehículo retirado · plaza liberada." });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
+router.post("/permits/:id/extend", async (req, res) => {
+  try {
+    const result = await extendPermitSession(
+      req.params.id,
+      req.body ?? {},
+      req.user!,
+    );
+    if (!result) {
+      return res.status(404).json({ error: "Permiso no encontrado." });
+    }
+    res.json({
+      ...result,
+      message: result.payment
+        ? "Sesión extendida · pago pendiente para el conductor."
+        : "Sesión extendida sin cargo.",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
     res.status(400).json({ error: message });

@@ -77,9 +77,10 @@ function mapSpotLive(s: SpotRow, viewerUserId?: string) {
 }
 
 export async function expireStaleHolds() {
-  await prisma.spotHold.deleteMany({
+  const result = await prisma.spotHold.deleteMany({
     where: { expiresAt: { lte: getNow() } },
   });
+  return { count: result.count };
 }
 
 export async function listSpotsLive(opts: {

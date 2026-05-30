@@ -48,8 +48,9 @@ export function PaymentHoldBanner({
         </span>
       </div>
       <p className="hold-desc">
-        Tenés <strong>10 minutos</strong> para completar el pago virtual. Pasado
-        ese tiempo la plaza vuelve a quedar libre.
+        Tenés <strong>{hold.digitalPayment ? "5" : "10"} minutos</strong> para
+        completar el pago virtual. Pasado ese tiempo la plaza vuelve a quedar
+        libre.
       </p>
       <p className="hold-amount">
         Total: ${hold.pricing.net.toLocaleString("es-AR")} · {hold.plate}

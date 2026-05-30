@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getDevNowMs } from "../dev/devConfig";
 import { useSubmitLock } from "../hooks/useSubmitLock";
 import { api, unwrapPaginated } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -50,6 +51,23 @@ const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 const HOUR_OPTIONS = Array.from({ length: 23 }, (_, i) => i + 1);
+
+const PERMIT_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  grace: "En tolerancia",
+  completed: "Completado",
+  cancelled: "Cancelado",
+};
+
+function formatGraceRemaining(graceUntil: string | null | undefined) {
+  if (!graceUntil) return null;
+  const ms = new Date(graceUntil).getTime() - getDevNowMs();
+  if (ms <= 0) return "Venció la tolerancia";
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")} restantes`;
+}
 
 export function PermisionarioPanel({
   activeTab,
@@ -122,6 +140,10 @@ export function PermisionarioPanel({
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [plazasZone, setPlazasZone] = useState("");
   const { busy: loadingQr, run: runLoadQr } = useSubmitLock();
+  const { busy: completing, run: runComplete } = useSubmitLock();
+  const { busy: extending, run: runExtend } = useSubmitLock();
+  const [extendHours, setExtendHours] = useState(1);
+  const [graceTick, setGraceTick] = useState(0);
 
   const geo = useGeolocation(activeTab === "nuevo");
 
@@ -334,6 +356,41 @@ export function PermisionarioPanel({
           );
           onTabChange?.("permisos");
         }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error");
+      }
+    });
+  }
+
+  useEffect(() => {
+    if (selected?.status !== "grace") return;
+    const id = window.setInterval(() => setGraceTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [selected?.status, selected?.graceUntil]);
+
+  async function completeCheckout(permit: Permit) {
+    await runComplete(async () => {
+      try {
+        const { message } = await api.completePermit(permit.id);
+        toast.success(message ?? "Vehículo retirado · plaza liberada.");
+        setSelected(null);
+        await refreshPermits();
+        await refreshHistory();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error");
+      }
+    });
+  }
+
+  async function extendSession(permit: Permit) {
+    await runExtend(async () => {
+      try {
+        const result = await api.extendPermit(permit.id, { hours: extendHours });
+        toast.success(result.message ?? "Sesión extendida.");
+        if (result.payment) setPendingPayment(result.payment);
+        setSelected(result.permit);
+        await refreshPermits();
+        await refreshHistory();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
       }
@@ -675,6 +732,7 @@ export function PermisionarioPanel({
                   label: "Estado",
                   options: [
                     { value: "active", label: "Activo" },
+                    { value: "grace", label: "En tolerancia" },
                     { value: "completed", label: "Completado" },
                     { value: "cancelled", label: "Cancelado" },
                   ],
@@ -700,7 +758,11 @@ export function PermisionarioPanel({
                   header: "Estado",
                   filterKey: "status",
                   searchValues: (p) => [p.status],
-                  render: (p) => <span className="chip">{p.status}</span>,
+                  render: (p) => (
+                    <span className={`chip${p.status === "grace" ? " chip-warn" : ""}`}>
+                      {PERMIT_STATUS_LABELS[p.status] ?? p.status}
+                    </span>
+                  ),
                 },
                 {
                   key: "zone",
@@ -761,6 +823,14 @@ export function PermisionarioPanel({
                       : "—",
                 },
                 {
+                  key: "grace",
+                  header: "Tolerancia",
+                  render: (p) =>
+                    p.status === "grace" && p.graceUntil
+                      ? formatGraceRemaining(p.graceUntil)
+                      : "—",
+                },
+                {
                   key: "end",
                   header: "Vence",
                   searchValues: (p) => [p.endAt],
@@ -779,18 +849,39 @@ export function PermisionarioPanel({
                   header: "Acciones",
                   render: (p) => (
                     <TableActions>
-                      {p.paymentMethod === "mercadopago" &&
-                        !p.paidAt &&
-                        p.status === "active" && (
+                      {(p.status === "active" || p.status === "grace") && (
+                        <button
+                          type="button"
+                          className="btn-small"
+                          disabled={loadingQr}
+                          onClick={() => void showPermitQr(p)}
+                        >
+                          Ver QR
+                        </button>
+                      )}
+                      {p.status === "grace" && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn-small btn-primary"
+                            disabled={completing}
+                            onClick={() => void completeCheckout(p)}
+                          >
+                            Retirado
+                          </button>
                           <button
                             type="button"
                             className="btn-small"
-                            disabled={loadingQr}
-                            onClick={() => void showPermitQr(p)}
+                            disabled={extending}
+                            onClick={() => {
+                              setSelected(p);
+                              setExtendHours(1);
+                            }}
                           >
-                            Ver QR
+                            Extender
                           </button>
-                        )}
+                        </>
+                      )}
                       <button
                         type="button"
                         className="btn-small"
@@ -828,14 +919,70 @@ export function PermisionarioPanel({
                   Plaza asignada: <strong>{selected.spotLabel}</strong>
                 </p>
               )}
+              {selected.status === "grace" && (
+                <div className="grace-banner panel-desc">
+                  <p>
+                    <strong>Período de tolerancia (15 min).</strong> El permiso
+                    venció; confirmá si el vehículo se retiró o extendé la
+                    sesión.
+                    {selected.graceUntil && (
+                      <>
+                        {" "}
+                        Tiempo restante:{" "}
+                        <strong>
+                          {graceTick >= 0 &&
+                            formatGraceRemaining(selected.graceUntil)}
+                        </strong>
+                      </>
+                    )}
+                  </p>
+                  <div className="form-grid grace-actions">
+                    <label>
+                      Horas a extender
+                      <select
+                        value={extendHours}
+                        onChange={(e) =>
+                          setExtendHours(Number(e.target.value))
+                        }
+                      >
+                        {HOUR_OPTIONS.map((h) => (
+                          <option key={h} value={h}>
+                            {h} h
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="action-buttons">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={extending}
+                        onClick={() => void extendSession(selected)}
+                      >
+                        {extending ? "Extendiendo…" : "Extender sesión"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={completing}
+                        onClick={() => void completeCheckout(selected)}
+                      >
+                        {completing ? "Guardando…" : "Vehículo retirado"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="form-grid">
                 <label>
                   Estado
                   <select
                     defaultValue={selected.status}
+                    disabled={selected.status === "grace"}
                     onChange={(e) => partialUpdate("status", e.target.value)}
                   >
                     <option value="active">Activo</option>
+                    <option value="grace">En tolerancia</option>
                     <option value="completed">Completado</option>
                     <option value="cancelled">Cancelado</option>
                   </select>

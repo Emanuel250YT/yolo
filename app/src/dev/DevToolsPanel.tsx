@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { api } from "../api/client";
 import {
   bumpDevClockMinutes,
   formatDatetimeLocal,
@@ -23,6 +24,7 @@ export function DevToolsPanel() {
     setClockOverride,
     geoOverride,
     setGeoOverride,
+    bumpRefresh,
   } = useDevTools();
   const { user, login } = useAuth();
   const [open, setOpen] = useState(false);
@@ -165,7 +167,18 @@ export function DevToolsPanel() {
                   >
                     Ahora (PC)
                   </button>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    onClick={() => void api.runDevExpiry().then(() => bumpRefresh())}
+                  >
+                    Caducar activos
+                  </button>
                 </div>
+                <p className="dev-tools-hint">
+                  El servidor revisa permisos, holds, pagos y reservas cada
+                  minuto usando esta hora simulada.
+                </p>
               </>
             )}
           </section>

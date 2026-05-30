@@ -142,6 +142,24 @@ export const api = {
 
   authConfig: () => request<RegistrationConfig>("/auth/config"),
 
+  syncDevClock: (payload: { enabled: boolean; iso?: string | null }) =>
+    request<{ clock: { enabled: boolean; iso: string | null } }>("/dev/clock", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  runDevExpiry: () =>
+    request<{
+      result: {
+        at: string;
+        simulated: boolean;
+        permitsExpired: number;
+        holdsExpired: number;
+        paymentOrdersExpired: number;
+        reservationsExpired: number;
+      };
+    }>("/dev/expiry/run", { method: "POST" }),
+
   register: (payload: RegisterPayload) =>
     request<AuthResponse & { message?: string }>("/auth/register", {
       method: "POST",
@@ -470,6 +488,19 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
+  completePermit: (id: string) =>
+    request<{ permit: Permit; message?: string }>(
+      `/permisionario/permits/${id}/complete`,
+      { method: "POST" },
+    ),
+  extendPermit: (
+    id: string,
+    payload: { durationMinutes?: number; hours?: number },
+  ) =>
+    request<{ permit: Permit; payment?: PaymentOrderInfo; message?: string }>(
+      `/permisionario/permits/${id}/extend`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
   addObservation: (id: string, observation: string) =>
     request<{ permit: Permit }>(`/permisionario/permits/${id}/observations`, {
       method: "POST",

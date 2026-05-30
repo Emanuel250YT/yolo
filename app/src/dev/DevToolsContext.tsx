@@ -84,6 +84,39 @@ export function DevToolsProvider({ children }: { children: ReactNode }) {
 
   const enabled = clientEnabled && serverEnabled;
 
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const payload = {
+      enabled: clockOverride.enabled,
+      iso: clockOverride.enabled ? clockOverride.iso : null,
+    };
+    api
+      .syncDevClock(payload)
+      .catch(() => {
+        /* servidor sin DevTools o sin red */
+      })
+      .then(() => {
+        if (!cancelled && clockOverride.enabled) {
+          setRefreshKey((k) => k + 1);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, clockOverride.enabled, clockOverride.iso]);
+
+  useEffect(() => {
+    if (!enabled || !clockOverride.enabled) return;
+    const id = window.setInterval(() => {
+      void api.syncDevClock({
+        enabled: true,
+        iso: clockOverride.iso,
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [enabled, clockOverride.enabled, clockOverride.iso]);
+
   const setShiftOverride = useCallback((value: DevShiftOverride) => {
     persistDevShift(value);
     setShiftState(value);

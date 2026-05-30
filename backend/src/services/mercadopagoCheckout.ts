@@ -24,6 +24,7 @@ export async function createMercadoPagoPreference(input: CreatePreferenceInput) 
   const { preferencesUrl, notificationUrl, frontendUrl } = getMercadoPagoConfig();
 
   const body = {
+    purpose: "wallet_purchase",
     items: [
       {
         id: input.orderRef,

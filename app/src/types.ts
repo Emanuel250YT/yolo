@@ -188,6 +188,7 @@ export interface Permit {
   locationLat?: number | null;
   locationLng?: number | null;
   status: string;
+  graceUntil?: string | null;
   startAt: string;
   endAt: string | null;
   createdAt: string;
@@ -215,6 +216,7 @@ export interface PaymentOrderPublic {
   title: string;
   description?: string | null;
   paymentUrl: string;
+  initPoint?: string | null;
   paidAt?: string | null;
 }
 

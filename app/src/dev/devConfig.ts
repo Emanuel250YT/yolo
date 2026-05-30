@@ -104,6 +104,8 @@ export function getDevHeaders(): Record<string, string> {
   if (shiftOverride !== "auto") headers["X-Dev-Shift"] = shiftOverride;
   if (clockOverride.enabled && clockOverride.iso) {
     headers["X-Dev-Time"] = clockOverride.iso;
+  } else {
+    headers["X-Dev-Clock"] = "off";
   }
   return headers;
 }

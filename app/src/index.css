@@ -593,6 +593,24 @@ button:disabled {
   color: var(--muted);
 }
 
+.chip-warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.grace-banner {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.grace-actions {
+  margin-top: 0.75rem;
+  align-items: end;
+}
+
 .state {
   font-size: 0.78rem;
   font-weight: 700;
@@ -3749,6 +3767,85 @@ textarea {
 .payment-brick-form-title {
   margin: 0 0 1rem;
   font-size: 1.1rem;
+}
+
+.payment-brick-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgb(0 0 0 / 8%);
+}
+
+.payment-brick-section--alt {
+  background: #f8fafc;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  padding: 1.25rem 1rem 1.5rem;
+  border-top-color: rgb(0 0 0 / 6%);
+}
+
+.payment-brick-section-desc {
+  margin: 0 0 1rem;
+  font-size: 0.92rem;
+  color: var(--muted, #555);
+  line-height: 1.45;
+}
+
+.payment-brick-return {
+  margin: 0.75rem 0 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 0.9rem;
+}
+
+.payment-brick-section--primary {
+  margin-top: 1.25rem;
+}
+
+.payment-brick-section--primary .payment-brick-form-title {
+  margin-bottom: 0.5rem;
+}
+
+.mp-brick-loading {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted, #555);
+}
+
+.mp-secure-pay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.btn-mp-secure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #009ee3;
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  text-decoration: none;
+  text-align: center;
+  box-shadow: 0 2px 8px rgb(0 158 227 / 25%);
+}
+
+.btn-mp-secure:hover {
+  background: #0089c7;
+  color: #fff;
+}
+
+.mp-secure-pay-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted, #555);
+  line-height: 1.45;
 }
 
 .panel-actions {

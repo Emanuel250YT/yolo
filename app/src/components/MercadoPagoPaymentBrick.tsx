@@ -59,6 +59,15 @@ export function MercadoPagoPaymentBrick({
     console.error("[MP Brick]", err);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      const c = (
+        window as Window & { paymentBrickController?: { unmount?: () => void } }
+      ).paymentBrickController;
+      c?.unmount?.();
+    };
+  }, []);
+
   return (
     <Payment
       id="sem-payment-brick"
@@ -86,7 +95,13 @@ export function PaymentBrickLoader(props: PaymentBrickLoaderProps) {
   useEffect(() => {
     ensureMercadoPagoInit(props.publicKey);
     setReady(true);
-    return () => setReady(false);
+    return () => {
+      setReady(false);
+      const c = (
+        window as Window & { paymentBrickController?: { unmount?: () => void } }
+      ).paymentBrickController;
+      c?.unmount?.();
+    };
   }, [props.publicKey]);
 
   if (!ready) return <p>Inicializando Mercado Pago…</p>;

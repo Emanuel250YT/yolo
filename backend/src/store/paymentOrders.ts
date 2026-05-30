@@ -1,5 +1,6 @@
 import type { PaymentOrderKind, PaymentOrderStatus } from "../prisma/client.js";
 import { prisma } from "../lib/prisma.js";
+import { getNow, getNowMs } from "../services/devClock.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { paymentBrickUrl } from "../config/mercadopago.js";
 import { createMercadoPagoPreference } from "../services/mercadopagoCheckout.js";
@@ -97,7 +98,7 @@ export async function createPaymentOrder(input: {
       amount: input.amount,
       title: input.title,
       description: input.description ?? null,
-      expiresAt: input.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expiresAt: input.expiresAt ?? new Date(getNowMs() + 24 * 60 * 60 * 1000),
       metadata: (input.metadata ?? undefined) as import("../prisma/client.js").Prisma.InputJsonValue | undefined,
     },
   });
@@ -109,12 +110,49 @@ async function fulfillPermitPayment(order: {
   entityId: string;
   ref: string;
   mpPaymentId: string | null;
+  metadata: unknown;
 }) {
   const permit = await prisma.permit.findUnique({
     where: { id: order.entityId },
-    include: { spot: { select: { id: true, label: true } } },
+    include: { spot: { select: { id: true, label: true, spotType: true } } },
   });
   if (!permit) return;
+
+  const meta = (order.metadata ?? {}) as {
+    extension?: boolean;
+    durationMinutes?: number;
+  };
+
+  if (meta.extension && meta.durationMinutes) {
+    const baseEnd =
+      permit.endAt && permit.endAt.getTime() > getNow().getTime()
+        ? permit.endAt
+        : getNow();
+    const newEndAt = new Date(
+      baseEnd.getTime() + meta.durationMinutes * 60_000,
+    );
+
+    await prisma.permit.update({
+      where: { id: permit.id },
+      data: {
+        endAt: newEndAt,
+        durationMinutes: permit.durationMinutes + meta.durationMinutes,
+        status: "active",
+        graceUntil: null,
+      },
+    });
+
+    await addHistoryEntry({
+      permitId: permit.id,
+      userId: permit.permisionarioId,
+      userName: permit.permisionarioName,
+      action: "update",
+      entityRef: permit.ref,
+      entityLabel: permit.plate,
+      observation: `Pago extensión confirmado · +${meta.durationMinutes} min · orden ${order.ref}${order.mpPaymentId ? ` · pago ${order.mpPaymentId}` : ""}`,
+    });
+    return;
+  }
 
   await prisma.permit.update({
     where: { id: permit.id },
@@ -228,11 +266,26 @@ export async function markPaymentOrderPaid(
 }
 
 export async function expireStalePaymentOrders() {
-  await prisma.paymentOrder.updateMany({
+  const expired = await prisma.paymentOrder.findMany({
     where: {
       status: "pending",
-      expiresAt: { lt: new Date() },
+      expiresAt: { lt: getNow() },
     },
+    select: { id: true, kind: true, entityId: true },
+  });
+
+  if (expired.length === 0) return { count: 0 };
+
+  await prisma.paymentOrder.updateMany({
+    where: { id: { in: expired.map((o) => o.id) } },
     data: { status: "expired" },
   });
+
+  for (const order of expired) {
+    if (order.kind === "spot_hold") {
+      await prisma.spotHold.deleteMany({ where: { id: order.entityId } });
+    }
+  }
+
+  return { count: expired.length };
 }

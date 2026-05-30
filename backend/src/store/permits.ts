@@ -7,13 +7,14 @@ import {
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
+import { getNowMs } from "../services/devClock.js";
 import { expireStalePermits } from "../services/expiry.js";
 import type { AuthActor } from "../types/api.js";
 import { getTariffs } from "./tariffs.js";
 import { addHistoryEntry } from "./history.js";
 import { createPaymentOrder } from "./paymentOrders.js";
 import { isMercadoPagoLinked } from "./mercadopago.js";
-import { occupySpotForPermit, resolvePermitSpot } from "./spots.js";
+import { occupySpotForPermit, resolvePermitSpot, adjustOccupancy } from "./spots.js";
 
 const PERMIT_ROLES = new Set(["admin", "permisionario", "municipio"]);
 
@@ -42,18 +43,30 @@ function mapPermit(p: {
   locationLat: number | null;
   locationLng: number | null;
   status: PermitStatus;
+  graceUntil: Date | null;
   startAt: Date;
   endAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
-  const { permisionario, spot, startAt, endAt, paidAt, createdAt, updatedAt, ...rest } = p;
+  const {
+    permisionario,
+    spot,
+    startAt,
+    endAt,
+    paidAt,
+    graceUntil,
+    createdAt,
+    updatedAt,
+    ...rest
+  } = p;
   return {
     ...rest,
     permisionarioRef: permisionario?.ref ?? null,
     spotLabel: spot?.label ?? null,
     startAt: startAt.toISOString(),
     endAt: endAt?.toISOString() ?? null,
+    graceUntil: graceUntil?.toISOString() ?? null,
     paidAt: paidAt?.toISOString() ?? null,
     createdAt: createdAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
@@ -315,7 +328,18 @@ export async function updatePermit(
       patch.vehicleType === "motorcycle" ? "motorcycle" : "auto";
   }
   if (patch.notes !== undefined) data.notes = patch.notes;
-  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.status !== undefined) {
+    data.status = patch.status;
+    if (
+      (patch.status === "completed" || patch.status === "cancelled") &&
+      patch.status !== existing.status
+    ) {
+      data.graceUntil = null;
+      if (existing.spotId) {
+        await adjustOccupancy(existing.spotId, -1);
+      }
+    }
+  }
   if (patch.endAt !== undefined) {
     data.endAt = patch.endAt ? new Date(String(patch.endAt)) : null;
   }
@@ -370,4 +394,170 @@ export async function addObservation(
   });
 
   return permit;
+}
+
+async function assertPermitAccess(
+  permit: { permisionarioId: string },
+  actor: AuthActor,
+) {
+  if (
+    actor.role === "permisionario" &&
+    permit.permisionarioId !== actor.id
+  ) {
+    throw new Error("No autorizado.");
+  }
+}
+
+export async function completePermitCheckout(id: string, actor: AuthActor) {
+  await expireStalePermits();
+  const existing = await prisma.permit.findUnique({
+    where: { id },
+    include: permitInclude,
+  });
+  if (!existing) return null;
+
+  await assertPermitAccess(existing, actor);
+
+  if (existing.status !== "active" && existing.status !== "grace") {
+    throw new Error("Solo se puede cerrar un permiso activo o en tolerancia.");
+  }
+
+  const before = mapPermit(existing);
+  const permit = await prisma.permit.update({
+    where: { id },
+    data: { status: "completed", graceUntil: null },
+    include: permitInclude,
+  });
+
+  if (existing.spotId) {
+    await adjustOccupancy(existing.spotId, -1);
+  }
+
+  const mapped = mapPermit(permit);
+  await addHistoryEntry({
+    permitId: id,
+    userId: actor.id,
+    userName: actor.name,
+    action: "update",
+    entityRef: permit.ref,
+    entityLabel: permit.plate,
+    before: JSON.parse(JSON.stringify(before)) as Prisma.InputJsonValue,
+    after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
+    observation: "Vehículo retirado · plaza liberada",
+  });
+
+  return mapped;
+}
+
+export async function extendPermitSession(
+  id: string,
+  input: { durationMinutes?: number; hours?: number },
+  actor: AuthActor,
+) {
+  await expireStalePermits();
+  const existing = await prisma.permit.findUnique({
+    where: { id },
+    include: permitInclude,
+  });
+  if (!existing) return null;
+
+  await assertPermitAccess(existing, actor);
+
+  if (existing.status !== "grace") {
+    throw new Error(
+      "Solo podés extender durante los 15 minutos posteriores al vencimiento.",
+    );
+  }
+
+  if (existing.graceUntil && existing.graceUntil.getTime() <= getNowMs()) {
+    throw new Error("Venció el plazo de tolerancia para extender.");
+  }
+
+  const spotRecord = existing.spotId
+    ? await prisma.spot.findUnique({
+        where: { id: existing.spotId },
+        select: { spotType: true },
+      })
+    : null;
+
+  const durationMinutes =
+    input.durationMinutes != null
+      ? Number(input.durationMinutes)
+      : input.hours != null
+        ? Number(input.hours) * 60
+        : 60;
+
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 15) {
+    throw new Error("Indicá una duración válida (mínimo 15 minutos).");
+  }
+
+  const isFreeSpot = spotRecord?.spotType === "gratuita";
+  const tariffs = await getTariffs();
+  const extensionPricing = calculateAmount({
+    vehicleType: existing.vehicleType,
+    minutes: durationMinutes,
+    digitalPayment: true,
+    tariffs,
+    free: isFreeSpot,
+  });
+
+  const newEndAt = new Date(getNowMs() + durationMinutes * 60_000);
+  const before = mapPermit(existing);
+
+  const permit = await prisma.permit.update({
+    where: { id },
+    data: {
+      status: "active",
+      endAt: newEndAt,
+      graceUntil: null,
+      durationMinutes: existing.durationMinutes + durationMinutes,
+    },
+    include: permitInclude,
+  });
+
+  const mapped = mapPermit(permit);
+  let payment: Awaited<ReturnType<typeof createPaymentOrder>> | undefined;
+
+  if (extensionPricing.net > 0) {
+    const permisionario = await prisma.user.findUnique({
+      where: { id: actor.id },
+    });
+    if (!permisionario || !isMercadoPagoLinked(permisionario)) {
+      throw new Error(
+        "Vinculá Mercado Pago en Mi cuenta para registrar extensiones con cobro digital.",
+      );
+    }
+
+    payment = await createPaymentOrder({
+      kind: "permit",
+      entityId: permit.id,
+      permisionarioId: actor.id,
+      title: `Extensión SEM · ${permit.plate}`,
+      description: `Estacionamiento ${permit.zone} · +${durationMinutes} min`,
+      amount: extensionPricing.net,
+      metadata: {
+        extension: true,
+        durationMinutes,
+        plate: permit.plate,
+        zone: permit.zone,
+        permitRef: permit.ref,
+      },
+    });
+  }
+
+  await addHistoryEntry({
+    permitId: id,
+    userId: actor.id,
+    userName: actor.name,
+    action: "update",
+    entityRef: permit.ref,
+    entityLabel: permit.plate,
+    before: JSON.parse(JSON.stringify(before)) as Prisma.InputJsonValue,
+    after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
+    observation: payment
+      ? `Sesión extendida +${durationMinutes} min · pago pendiente · orden ${payment.orderId}`
+      : `Sesión extendida +${durationMinutes} min · sin cargo`,
+  });
+
+  return { permit: mapped, payment };
 }
