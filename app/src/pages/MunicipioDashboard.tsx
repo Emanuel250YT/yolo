@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { api, unwrapPaginated } from "../api/client";
+import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { AppShell } from "../components/AppShell";
 import { DashboardSummary } from "../components/DashboardSummary";
 import { ParkingZoneManager } from "../components/ParkingZoneManager";
@@ -24,6 +25,7 @@ const NAV = [
   { id: "plazas", label: "Plazas" },
   { id: "historial", label: "Historial" },
   { id: "tarifas", label: "Tarifas" },
+  { id: "cuenta", label: "Mi cuenta" },
 ];
 
 const OPS_TABS = new Set(["permisos", "nuevo", "historial"]);
@@ -148,6 +150,8 @@ export function MunicipioDashboard() {
       )}
 
       {tab === "tarifas" && <TariffManager />}
+
+      {tab === "cuenta" && <AccountProfilePanel />}
     </AppShell>
   );
 }

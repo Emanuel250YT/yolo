@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "../api/client";
+import type { DevSpotSimStatus, ParkingZone } from "../types";
 import {
   bumpDevClockMinutes,
   formatDatetimeLocal,
@@ -30,6 +31,34 @@ export function DevToolsPanel() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [simZone, setSimZone] = useState("");
+  const [simCount, setSimCount] = useState(8);
+  const [simStatus, setSimStatus] = useState<DevSpotSimStatus | null>(null);
+
+  useEffect(() => {
+    if (!open || !enabled) return;
+    void api.parkingZones({ pageSize: 100 }).then((res) => {
+      const list = res.zones.filter((z) => z.enabled);
+      setZones(list);
+      setSimZone((prev) => prev || list[0]?.code || "");
+    });
+    void api.devSpotSimStatus().then((res) => setSimStatus(res.status)).catch(() => {});
+  }, [open, enabled]);
+
+  useEffect(() => {
+    if (!simStatus?.running) return;
+    const id = window.setInterval(() => {
+      void api
+        .devSpotSimStatus()
+        .then((res) => {
+          setSimStatus(res.status);
+          bumpRefresh();
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [simStatus?.running, bumpRefresh]);
 
   if (!ready || !enabled) return null;
 
@@ -60,6 +89,38 @@ export function DevToolsPanel() {
 
   function bumpClock(minutes: number) {
     setClockOverride(bumpDevClockMinutes(minutes));
+  }
+
+  async function startSpotSim() {
+    if (!simZone) {
+      setError("Elegí una zona.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.startDevSpotSim(simZone, simCount);
+      setSimStatus(res.status);
+      bumpRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopSpotSim() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.stopDevSpotSim();
+      setSimStatus(res.status);
+      bumpRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -247,6 +308,81 @@ export function DevToolsPanel() {
                   />
                 </label>
               </div>
+            )}
+          </section>
+
+          <section className="dev-tools-section">
+            <p className="dev-tools-label">Simular ocupación (mapas)</p>
+            <p className="dev-tools-hint">
+              Ocupa plazas al azar en la zona cada 5 s – 1 min. Al llegar al
+              total, rota plazas para ver zonas calientes en tiempo real.
+            </p>
+            <label>
+              Zona
+              <select
+                value={simZone}
+                disabled={simStatus?.running || busy}
+                onChange={(e) => setSimZone(e.target.value)}
+              >
+                {zones.length === 0 && <option value="">Cargando…</option>}
+                {zones.map((z) => (
+                  <option key={z.id} value={z.code}>
+                    {z.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Cantidad de plazas
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={simCount}
+                disabled={simStatus?.running || busy}
+                onChange={(e) =>
+                  setSimCount(Math.max(1, Number(e.target.value) || 1))
+                }
+              />
+            </label>
+            <div className="dev-tools-actions">
+              {!simStatus?.running ? (
+                <button
+                  type="button"
+                  className="btn-small btn-primary"
+                  disabled={busy || !simZone}
+                  onClick={() => void startSpotSim()}
+                >
+                  Iniciar simulación
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-small btn-danger"
+                  disabled={busy}
+                  onClick={() => void stopSpotSim()}
+                >
+                  Detener y liberar
+                </button>
+              )}
+            </div>
+            {simStatus && (
+              <p className="dev-tools-meta">
+                {simStatus.running ? (
+                  <>
+                    Activa · <strong>{simStatus.occupiedCount}</strong>/
+                    {simStatus.targetCount} en {simStatus.zoneCode}
+                    {simStatus.lastAction && (
+                      <>
+                        <br />
+                        {simStatus.lastAction}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  "Detenida"
+                )}
+              </p>
             )}
           </section>
 

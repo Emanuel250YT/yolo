@@ -7,7 +7,13 @@ import {
   getRegistrationConfig,
   registerPublicUser,
 } from "../services/registration.js";
-import { findByEmail, sanitizeUser, verifyPassword } from "../store/users.js";
+import {
+  findByEmail,
+  findById,
+  sanitizeUser,
+  setPassword,
+  verifyPassword,
+} from "../store/users.js";
 
 const router = Router();
 
@@ -64,8 +70,44 @@ router.post("/register", async (req, res) => {
   }
 });
 
-router.get("/me", authenticate, (req, res) => {
-  res.json({ user: req.user });
+router.get("/me", authenticate, async (req, res) => {
+  const user = await findById(req.user!.id);
+  if (!user) {
+    return res.status(404).json({ error: "Usuario no encontrado." });
+  }
+  res.json({ user: sanitizeUser(user) });
+});
+
+router.post("/me/password", authenticate, async (req, res) => {
+  try {
+    const currentPassword =
+      typeof req.body?.currentPassword === "string"
+        ? req.body.currentPassword
+        : "";
+    const password =
+      typeof req.body?.password === "string" ? req.body.password : "";
+
+    if (!currentPassword || !password) {
+      return res
+        .status(400)
+        .json({ error: "La contraseña actual y la nueva son obligatorias." });
+    }
+
+    const user = await findById(req.user!.id);
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado." });
+    }
+
+    if (!(await verifyPassword(user, currentPassword))) {
+      return res.status(401).json({ error: "La contraseña actual es incorrecta." });
+    }
+
+    const updated = await setPassword(user.id, password);
+    res.json({ user: updated, message: "Contraseña actualizada correctamente." });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
 });
 
 export default router;

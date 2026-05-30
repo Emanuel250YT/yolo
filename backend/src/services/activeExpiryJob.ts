@@ -9,14 +9,16 @@ let lastResult: Awaited<ReturnType<typeof expireAllActiveRecords>> | null =
 
 function logResult(result: Awaited<ReturnType<typeof expireAllActiveRecords>>) {
   const total =
-    result.permitsExpired +
+    result.permitsEnteredGrace +
+    result.permitsAutoCancelled +
     result.holdsExpired +
     result.paymentOrdersExpired +
-    result.reservationsExpired;
+    result.reservationsExpired +
+    result.spotsReconciled;
   if (total === 0) return;
   const sim = result.simulated ? " [sim]" : "";
   console.info(
-    `[Expiry${sim}] ${result.at} · permisos ${result.permitsExpired} · holds ${result.holdsExpired} · pagos ${result.paymentOrdersExpired} · reservas ${result.reservationsExpired}`,
+    `[Expiry${sim}] ${result.at} · tolerancia ${result.permitsEnteredGrace} · cancelados ${result.permitsAutoCancelled} · holds ${result.holdsExpired} · pagos ${result.paymentOrdersExpired} · reservas ${result.reservationsExpired} · plazas ${result.spotsReconciled}`,
   );
 }
 

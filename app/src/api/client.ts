@@ -21,6 +21,7 @@ import type {
   Tariffs,
   TariffsResponse,
   User,
+  DevSpotSimStatus,
   PaymentOrderInfo,
   PaymentOrderPublic,
 } from "../types";
@@ -160,6 +161,20 @@ export const api = {
       };
     }>("/dev/expiry/run", { method: "POST" }),
 
+  devSpotSimStatus: () =>
+    request<{ status: DevSpotSimStatus }>("/dev/spots/simulate"),
+
+  startDevSpotSim: (zoneCode: string, count: number) =>
+    request<{ status: DevSpotSimStatus }>("/dev/spots/simulate/start", {
+      method: "POST",
+      body: JSON.stringify({ zoneCode, count }),
+    }),
+
+  stopDevSpotSim: () =>
+    request<{ status: DevSpotSimStatus }>("/dev/spots/simulate/stop", {
+      method: "POST",
+    }),
+
   register: (payload: RegisterPayload) =>
     request<AuthResponse & { message?: string }>("/auth/register", {
       method: "POST",
@@ -167,6 +182,11 @@ export const api = {
     }),
 
   me: () => request<{ user: User }>("/auth/me"),
+  changePassword: (currentPassword: string, password: string) =>
+    request<{ user: User; message?: string }>("/auth/me/password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, password }),
+    }),
 
   municipioUsers: (query?: ListQuery) =>
     request<PaginatedList<"users", User>>(`/municipio/users${buildQuery(query)}`),
@@ -609,9 +629,11 @@ export const api = {
       method: "DELETE",
     }),
   conductorConfig: () =>
-    request<{ maxAdvanceMinutes: number; holdPaymentMinutes: number }>(
-      "/conductor/config",
-    ),
+    request<{
+      maxAdvanceMinutes: number;
+      holdPaymentMinutes: number;
+      holdPaymentMinutesMp?: number;
+    }>("/conductor/config"),
   conductorVehicles: (query?: ListQuery) =>
     request<PaginatedList<"vehicles", ConductorVehicle>>(
       `/conductor/vehicles${buildQuery(query)}`,

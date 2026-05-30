@@ -77,6 +77,16 @@ export interface RegisterPayload {
   citizen?: Partial<CitizenProfile>;
 }
 
+export interface DevSpotSimStatus {
+  running: boolean;
+  zoneCode: string | null;
+  targetCount: number;
+  occupiedCount: number;
+  lastTickAt: string | null;
+  lastAction: string | null;
+  nextTickAt: string | null;
+}
+
 export interface HealthResponse {
   status: string;
   service: string;

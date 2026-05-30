@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
-import { SPOT_HOLD_MS } from "../config/reservations.js";
+import { SPOT_HOLD_MS, SPOT_HOLD_MP_MS } from "../config/reservations.js";
 import {
   addConductorVehicle,
   deleteConductorVehicle,
@@ -220,6 +220,7 @@ router.get("/config", (_req, res) => {
   res.json({
     maxAdvanceMinutes: MAX_RESERVATION_ADVANCE_MS / 60_000,
     holdPaymentMinutes: SPOT_HOLD_MS / 60_000,
+    holdPaymentMinutesMp: SPOT_HOLD_MP_MS / 60_000,
   });
 });
 

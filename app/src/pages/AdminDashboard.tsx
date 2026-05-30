@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, unwrapPaginated } from "../api/client";
+import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { AppShell } from "../components/AppShell";
 import { DataTable, RefCell } from "../components/DataTable";
 import { DashboardSummary } from "../components/DashboardSummary";
@@ -26,6 +27,7 @@ const NAV = [
   { id: "plazas", label: "Plazas" },
   { id: "usuarios", label: "Usuarios" },
   { id: "reservas", label: "Reservas" },
+  { id: "cuenta", label: "Mi cuenta" },
 ];
 
 const OPS_TABS = new Set(["permisos", "nuevo", "historial"]);
@@ -206,6 +208,8 @@ export function AdminDashboard() {
           />
         </section>
       )}
+
+      {tab === "cuenta" && <AccountProfilePanel />}
     </AppShell>
   );
 }

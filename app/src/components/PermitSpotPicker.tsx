@@ -17,6 +17,8 @@ interface PermitSpotPickerProps {
   selectedSpotId: string | null;
   onSpotChange: (spotId: string | null, spot: Spot | null) => void;
   disabled?: boolean;
+  /** API de plazas: permisionario (default) o conductor. */
+  audience?: "permisionario" | "conductor";
 }
 
 export function PermitSpotPicker({
@@ -25,6 +27,7 @@ export function PermitSpotPicker({
   selectedSpotId,
   onSpotChange,
   disabled,
+  audience = "permisionario",
 }: PermitSpotPickerProps) {
   const geo = useGeolocation(true);
   const spotTouched = useRef(false);
@@ -49,8 +52,12 @@ export function PermitSpotPicker({
     setError(null);
     try {
       const [s, b] = await Promise.all([
-        api.permisionarioSpotsLive({ zone: zoneCode }),
-        api.permisionarioBlocks(),
+        audience === "conductor"
+          ? api.spotsLive({ zone: zoneCode })
+          : api.permisionarioSpotsLive({ zone: zoneCode }),
+        audience === "conductor"
+          ? api.conductorBlocks()
+          : api.permisionarioBlocks(),
       ]);
       setSpots(s.spots);
       setBlocks(b.blocks.filter((x) => x.zoneCode === zoneCode));
@@ -60,7 +67,7 @@ export function PermitSpotPicker({
     } finally {
       setLoading(false);
     }
-  }, [zoneCode]);
+  }, [zoneCode, audience]);
 
   useEffect(() => {
     setLoading(true);
@@ -73,8 +80,11 @@ export function PermitSpotPicker({
       setReferenceImageUrl(null);
       return;
     }
-    api
-      .permisionarioZone(zone.id)
+    const fetchZone =
+      audience === "conductor"
+        ? api.conductorZone(zone.id)
+        : api.permisionarioZone(zone.id);
+    fetchZone
       .then(({ zone: z }) => {
         if (z.imageBase64 && z.imageMimeType) {
           setReferenceImageUrl(
@@ -85,7 +95,7 @@ export function PermitSpotPicker({
         }
       })
       .catch(() => setReferenceImageUrl(null));
-  }, [zone?.id]);
+  }, [zone?.id, audience]);
 
   const displaySpots = useMemo(
     () => filterSpotsByBlock(spots, blockId),
@@ -125,12 +135,6 @@ export function PermitSpotPicker({
     setBlockId("");
     setPickerOpen(false);
   }, [zoneCode]);
-
-  useEffect(() => {
-    if (!selectedSpotId && !loading && availableSpots.length > 0) {
-      setPickerOpen(true);
-    }
-  }, [selectedSpotId, loading, availableSpots.length]);
 
   const selectedBlock = blocks.find((b) => b.id === blockId);
 

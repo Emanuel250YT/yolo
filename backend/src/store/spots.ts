@@ -83,13 +83,18 @@ export async function expireStaleHolds() {
   return { count: result.count };
 }
 
+async function ensureParkingFresh() {
+  const { refreshParkingState } = await import("../services/expiry.js");
+  await refreshParkingState();
+}
+
 export async function listSpotsLive(opts: {
   onlyAvailable?: boolean;
   blockId?: string;
   zoneCode?: string;
   viewerUserId?: string;
 } = {}) {
-  await expireStaleHolds();
+  await ensureParkingFresh();
 
   const spots = await prisma.spot.findMany({
     where: {
@@ -121,7 +126,7 @@ export async function listSpots(opts: {
   zoneCode?: string;
   spotType?: SpotType;
 } = {}): Promise<PaginatedResult<ReturnType<typeof mapSpotLive>> | ReturnType<typeof mapSpotLive>[]> {
-  await expireStaleHolds();
+  await ensureParkingFresh();
 
   const search = opts.pagination?.q
     ? {
@@ -185,7 +190,7 @@ export async function listSpots(opts: {
 }
 
 export async function getSpot(id: string, viewerUserId?: string) {
-  await expireStaleHolds();
+  await ensureParkingFresh();
   const s = await prisma.spot.findUnique({
     where: { id },
     include: {
@@ -297,6 +302,85 @@ export async function adjustOccupancy(spotId: string, delta: number) {
     },
   });
   return mapSpotLive(s);
+}
+
+/** Sincroniza `spot.occupied` con permisos/reservas vigentes (fuente de verdad). */
+export async function reconcileSpotOccupancy(now = getNow()) {
+  const nowMs = now.getTime();
+
+  const holdingPermits = await prisma.permit.findMany({
+    where: {
+      spotId: { not: null },
+      OR: [
+        {
+          status: "grace",
+          graceUntil: { gt: now },
+        },
+        {
+          status: "active",
+          AND: [
+            { OR: [{ endAt: null }, { endAt: { gt: now } }] },
+            {
+              OR: [
+                { paymentMethod: "cash" },
+                { paidAt: { not: null } },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    select: { spotId: true },
+  });
+
+  const activeReservations = await prisma.reservation.findMany({
+    where: { status: "confirmed" },
+    select: { spotId: true, scheduledStart: true, durationMinutes: true },
+  });
+
+  const expected = new Map<string, number>();
+  for (const p of holdingPermits) {
+    if (!p.spotId) continue;
+    expected.set(p.spotId, (expected.get(p.spotId) ?? 0) + 1);
+  }
+  for (const r of activeReservations) {
+    if (r.scheduledStart.getTime() + r.durationMinutes * 60_000 <= nowMs) {
+      continue;
+    }
+    expected.set(r.spotId, (expected.get(r.spotId) ?? 0) + 1);
+  }
+
+  const { getDevSimOccupiedSpotIds } = await import("../services/devSpotSimState.js");
+  for (const spotId of getDevSimOccupiedSpotIds()) {
+    expected.set(spotId, (expected.get(spotId) ?? 0) + 1);
+  }
+
+  const spotIds = new Set<string>([
+    ...expected.keys(),
+    ...(await prisma.spot.findMany({
+      where: { occupied: { gt: 0 } },
+      select: { id: true },
+    })).map((s) => s.id),
+  ]);
+
+  let fixed = 0;
+  for (const spotId of spotIds) {
+    const spot = await prisma.spot.findUnique({
+      where: { id: spotId },
+      select: { id: true, capacity: true, occupied: true },
+    });
+    if (!spot) continue;
+    const want = Math.min(spot.capacity, expected.get(spotId) ?? 0);
+    if (spot.occupied !== want) {
+      await prisma.spot.update({
+        where: { id: spotId },
+        data: { occupied: want },
+      });
+      fixed++;
+    }
+  }
+
+  return { fixed, spotsChecked: spotIds.size };
 }
 
 export async function createSpotAtZonePoint(input: {

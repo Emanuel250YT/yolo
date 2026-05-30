@@ -3,18 +3,19 @@ import { getDevNowMs } from "../dev/devConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, unwrapPaginated } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
+import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { AppShell } from "../components/AppShell";
 import { DataTable, TableActions } from "../components/DataTable";
 import { ConductorPayByCodeForm } from "../components/PaymentOrderDisplay";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { ParkingAlertsBanner } from "../components/ParkingAlertsBanner";
-import { PaymentHoldBanner } from "../components/PaymentHoldBanner";
-import { SpotMap } from "../components/SpotMap";
+import { PermitSpotPicker } from "../components/PermitSpotPicker";
 import { ZonesMap } from "../components/ZonesMap";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { useSubmitLock } from "../hooks/useSubmitLock";
-import { defaultImageBounds } from "../utils/spotMapStyles";
-import { sortBlocksByDistance, spotLiveStatus } from "../utils/geo";
+import { spotLiveStatus } from "../utils/geo";
+import { zoneLabel } from "../utils/zoneDefaults";
 import {
   buildReservationStartSlots,
   defaultStartSlot,
@@ -23,10 +24,11 @@ import {
 import type {
   ConductorVehicle,
   ParkingAlert,
-  ParkingBlock,
+  ParkingZone,
+  QuoteResult,
   Reservation,
   Spot,
-  SpotHold,
+  Tariffs,
 } from "../types";
 
 const NAV = [
@@ -36,9 +38,8 @@ const NAV = [
   { id: "reservar", label: "Reservar" },
   { id: "mis-reservas", label: "Reservas" },
   { id: "pagar", label: "Pagar" },
+  { id: "cuenta", label: "Mi cuenta" },
 ];
-
-const REGIONS = ["Centro", "Norte", "Sur", "Este", "Oeste"];
 
 function formatDurationHours(minutes: number) {
   const h = minutes / 60;
@@ -60,29 +61,31 @@ function spotStatusLabel(s: Spot) {
 
 export function ConductorDashboard() {
   const { refreshKey } = useDevTools();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState("inicio");
   const [spots, setSpots] = useState<Spot[]>([]);
-  const [blocks, setBlocks] = useState<ParkingBlock[]>([]);
+  const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [reservationVehicles, setReservationVehicles] = useState<
+    ConductorVehicle[]
+  >([]);
   const [hasVehicles, setHasVehicles] = useState(false);
   const [vehicleCount, setVehicleCount] = useState(0);
   const [alerts, setAlerts] = useState<ParkingAlert[]>([]);
+  const [tariffs, setTariffs] = useState<Tariffs | null>(null);
   const [maxAdvance, setMaxAdvance] = useState(30);
-  const [holdPaymentMinutes, setHoldPaymentMinutes] = useState(10);
+  const [holdPaymentMinutesMp, setHoldPaymentMinutesMp] = useState(5);
   const [mapZone, setMapZone] = useState<string | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<string>("");
-  const [selectedBlockId, setSelectedBlockId] = useState<string>("");
-  const [activeHold, setActiveHold] = useState<SpotHold | null>(null);
+  const [reserveZone, setReserveZone] = useState<string>("");
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
-  const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(
-    null,
-  );
+  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const [cashQuote, setCashQuote] = useState<QuoteResult | null>(null);
   const [slotTick, setSlotTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [payCodeError, setPayCodeError] = useState<string | null>(null);
   const { busy: payCodeLoading, run: runPayCode } = useSubmitLock();
 
-  const geo = useGeolocation(tab === "reservar" || tab === "lugares");
+  const geo = useGeolocation(tab === "lugares");
 
   const {
     items: vehicles,
@@ -131,11 +134,9 @@ export function ConductorDashboard() {
     vehicleType: "auto" as "auto" | "motorcycle",
     scheduledStart: defaultStartSlot(),
     durationHours: 1,
-    digitalPayment: true,
   });
 
-  const { busy: holding, run: runHold } = useSubmitLock();
-  const { busy: paying, run: runPay } = useSubmitLock();
+  const { busy: reserving, run: runReserve } = useSubmitLock();
   const { busy: addingVehicle, run: runAddVehicle } = useSubmitLock();
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -144,37 +145,9 @@ export function ConductorDashboard() {
     [maxAdvance, slotTick, refreshKey],
   );
 
-  const sortedBlocks = useMemo(() => {
-    if (geo.lat != null && geo.lng != null) {
-      return sortBlocksByDistance(blocks, geo.lat, geo.lng);
-    }
-    return blocks;
-  }, [blocks, geo.lat, geo.lng]);
-
-  const regionOptions = useMemo(() => {
-    const fromBlocks = new Set(
-      blocks.map((b) => b.region).filter(Boolean) as string[],
-    );
-    return REGIONS.filter((r) => fromBlocks.has(r) || fromBlocks.size === 0);
-  }, [blocks]);
-
-  const blocksInRegion = useMemo(() => {
-    let list = sortedBlocks;
-    if (selectedRegion) {
-      list = list.filter((b) => b.region === selectedRegion);
-    }
-    if (mapZone) {
-      list = list.filter((b) => b.zoneCode === mapZone);
-    }
-    return list;
-  }, [sortedBlocks, selectedRegion, mapZone]);
-
-  const blockSpots = useMemo(
-    () =>
-      selectedBlockId
-        ? spots.filter((s) => s.blockId === selectedBlockId)
-        : [],
-    [spots, selectedBlockId],
+  const enabledZones = useMemo(
+    () => zones.filter((z) => z.enabled),
+    [zones],
   );
 
   const filteredSpots = useMemo(
@@ -182,40 +155,60 @@ export function ConductorDashboard() {
     [spots, mapZone],
   );
 
+  const selectedVehicle = useMemo(
+    () => reservationVehicles.find((v) => v.plate === form.plate) ?? null,
+    [reservationVehicles, form.plate],
+  );
+
+  const isFreeSpot = selectedSpot?.spotType === "gratuita";
+
+  const ratePerHour =
+    tariffs == null
+      ? null
+      : form.vehicleType === "motorcycle"
+        ? tariffs.motorcyclePerHour
+        : tariffs.autoPerHour;
+
   const refreshLiveSpots = useCallback(async () => {
     try {
+      const zoneFilter = tab === "lugares" && mapZone ? mapZone : undefined;
       const { spots: live } = await api.spotsLive(
-        selectedBlockId ? { blockId: selectedBlockId } : undefined,
+        zoneFilter ? { zone: zoneFilter } : undefined,
       );
       setSpots(live);
     } catch {
       /* ignore polling errors */
     }
-  }, [selectedBlockId]);
+  }, [tab, mapZone]);
 
   const load = useCallback(async () => {
     try {
-      const [s, c, v, a, b] = await Promise.all([
+      const [s, c, v, a, z, t] = await Promise.all([
         api.spotsLive(),
         api.conductorConfig(),
-        api.conductorVehicles({ page: 1, pageSize: 1 }),
+        api.conductorVehicles({ page: 1, pageSize: 100 }),
         api.conductorParkingAlerts(),
-        api.conductorBlocks(),
+        api.parkingZones({ pageSize: 100 }),
+        api.tariffs(),
       ]);
       setSpots(s.spots);
       setMaxAdvance(c.maxAdvanceMinutes);
-      setHoldPaymentMinutes(c.holdPaymentMinutes ?? 10);
+      setHoldPaymentMinutesMp(c.holdPaymentMinutesMp ?? 5);
       setHasVehicles(v.total > 0);
       setVehicleCount(v.total);
+      setReservationVehicles(v.vehicles);
       setAlerts(a.alerts);
-      setBlocks(b.blocks);
+      setZones(z.zones);
+      setTariffs(t.tariffs);
+      const firstVehicle = v.vehicles[0];
+      const firstZone = z.zones.find((zone) => zone.enabled);
       setForm((f) => ({
         ...f,
-        plate: f.plate || v.vehicles[0]?.plate || "",
+        plate: f.plate || firstVehicle?.plate || "",
+        vehicleType: firstVehicle?.vehicleType ?? f.vehicleType,
         scheduledStart: defaultStartSlot(c.maxAdvanceMinutes),
       }));
-      setSelectedRegion((prev) => prev || b.blocks[0]?.region || "Centro");
-      setSelectedBlockId((prev) => prev || b.blocks[0]?.id || "");
+      setReserveZone((prev) => prev || firstZone?.code || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     }
@@ -239,13 +232,82 @@ export function ConductorDashboard() {
   }, [tab]);
 
   useEffect(() => {
-    if (tab !== "reservar" && tab !== "lugares") return;
+    if (tab !== "lugares") return;
     refreshLiveSpots();
     const id = window.setInterval(() => {
       refreshLiveSpots();
     }, 5_000);
     return () => window.clearInterval(id);
   }, [tab, refreshLiveSpots, refreshKey]);
+
+  useEffect(() => {
+    setSelectedSpotId(null);
+    setSelectedSpot(null);
+  }, [reserveZone]);
+
+  useEffect(() => {
+    if (tab !== "reservar") return;
+    api
+      .conductorVehicles({ page: 1, pageSize: 100 })
+      .then((v) => {
+        setReservationVehicles(v.vehicles);
+        setHasVehicles(v.total > 0);
+        setVehicleCount(v.total);
+      })
+      .catch(() => null);
+  }, [tab, refreshKey]);
+
+  const reservationMinutes = form.durationHours * 60;
+
+  useEffect(() => {
+    if (tab !== "reservar" || !form.plate) {
+      setCashQuote(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        if (isFreeSpot && tariffs) {
+          setCashQuote({
+            plate: form.plate,
+            vehicleType: form.vehicleType,
+            minutes: reservationMinutes,
+            gross: 0,
+            digitalDiscount: 0,
+            net: 0,
+            digitalPayment: false,
+            rules: {
+              toleranceMinutes: tariffs.toleranceMinutes,
+              digitalDiscountRate: tariffs.digitalDiscountRate,
+              fractionMinutes: tariffs.fractionMinutes,
+              fractionFromHour: tariffs.fractionFromHour,
+            },
+          });
+          return;
+        }
+        const quote = await api.quote({
+          vehicleType: form.vehicleType,
+          minutes: reservationMinutes,
+          digitalPayment: false,
+          plate: form.plate,
+        });
+        if (!cancelled) setCashQuote(quote);
+      } catch {
+        if (!cancelled) setCashQuote(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tab,
+    form.plate,
+    form.vehicleType,
+    reservationMinutes,
+    isFreeSpot,
+    tariffs,
+    refreshKey,
+  ]);
 
   useEffect(() => {
     if (!startSlots.some((s) => s.value === form.scheduledStart)) {
@@ -256,35 +318,32 @@ export function ConductorDashboard() {
     }
   }, [startSlots, form.scheduledStart, maxAdvance]);
 
-  useEffect(() => {
-    if (!activeHold) return;
-    const id = window.setInterval(async () => {
-      const exp = new Date(activeHold.expiresAt).getTime();
-      if (exp <= getDevNowMs()) {
-        setActiveHold(null);
-        setSelectedSpotId(null);
-        await refreshLiveSpots();
-      }
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [activeHold, refreshLiveSpots, refreshKey]);
-
   function goRenew(plate: string) {
     setForm((f) => ({ ...f, plate }));
     setTab("reservar");
   }
 
-  async function selectSpot(spot: Spot) {
-    if (!form.plate) {
-      setError("Seleccioná una patente antes de elegir la plaza.");
+  async function reserveAndPay() {
+    if (!selectedVehicle) {
+      setError("Seleccioná un vehículo registrado.");
       return;
     }
-    if (activeHold) {
-      setError("Completá o cancelá el pago de la plaza actual primero.");
+    if (!reserveZone) {
+      setError("Seleccioná una zona.");
+      return;
+    }
+    if (!selectedSpotId) {
+      setError("Seleccioná una plaza libre para el vehículo.");
+      return;
+    }
+    if (isFreeSpot) {
+      setError(
+        "Las plazas gratuitas no se reservan con Mercado Pago. Elegí una plaza de pago.",
+      );
       return;
     }
 
-    await runHold(async () => {
+    await runReserve(async () => {
       setError(null);
       const start = new Date(form.scheduledStart).getTime();
       const limit = getDevNowMs() + maxAdvance * 60 * 1000;
@@ -293,38 +352,26 @@ export function ConductorDashboard() {
         return;
       }
       try {
-        const { hold } = await api.createSpotHold(spot.id, {
-          plate: form.plate,
-          vehicleType: form.vehicleType,
+        const { hold } = await api.createSpotHold(selectedSpotId, {
+          plate: selectedVehicle.plate,
+          vehicleType: selectedVehicle.vehicleType,
           scheduledStart: form.scheduledStart,
           durationHours: form.durationHours,
-          digitalPayment: form.digitalPayment,
+          digitalPayment: false,
         });
-        setActiveHold(hold);
-        setSelectedSpotId(spot.id);
-        await refreshLiveSpots();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al reservar plaza");
-      }
-    });
-  }
-
-  async function payHold(method: "cash" | "mercadopago") {
-    if (!activeHold) return;
-    await runPay(async () => {
-      setError(null);
-      try {
-        const res = await api.paySpotHold(activeHold.id, method);
+        const res = await api.paySpotHold(hold.id, "mercadopago");
         if (res.payment?.orderId) {
-          navigate(`/payment-brick?order-id=${encodeURIComponent(res.payment.orderId)}`);
+          navigate(
+            `/payment-brick?order-id=${encodeURIComponent(res.payment.orderId)}`,
+          );
           return;
         }
-        setActiveHold(null);
         setSelectedSpotId(null);
+        setSelectedSpot(null);
         await load();
         setTab("mis-reservas");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al pagar");
+        setError(err instanceof Error ? err.message : "Error al reservar");
       }
     });
   }
@@ -349,18 +396,6 @@ export function ConductorDashboard() {
     });
   }
 
-  async function cancelHold() {
-    if (!activeHold) return;
-    try {
-      await api.cancelSpotHold(activeHold.id);
-      setActiveHold(null);
-      setSelectedSpotId(null);
-      await refreshLiveSpots();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    }
-  }
-
   async function addVehicle(e: React.FormEvent) {
     e.preventDefault();
     await runAddVehicle(async () => {
@@ -369,8 +404,17 @@ export function ConductorDashboard() {
         await api.conductorAddVehicle(vehicleForm);
         setVehicleForm({ plate: "", vehicleType: "auto", label: "" });
         await refreshVehicles();
-        setHasVehicles(true);
-        setVehicleCount((c) => c + 1);
+        const v = await api.conductorVehicles({ page: 1, pageSize: 100 });
+        setReservationVehicles(v.vehicles);
+        setHasVehicles(v.total > 0);
+        setVehicleCount(v.total);
+        if (!form.plate && v.vehicles[0]) {
+          setForm((f) => ({
+            ...f,
+            plate: v.vehicles[0].plate,
+            vehicleType: v.vehicles[0].vehicleType,
+          }));
+        }
         setTab("vehiculos");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al registrar");
@@ -384,8 +428,18 @@ export function ConductorDashboard() {
     try {
       await api.conductorDeleteVehicle(id);
       await refreshVehicles();
-      setVehicleCount((c) => Math.max(0, c - 1));
-      setHasVehicles(vehiclesPagination.total > 1);
+      const v = await api.conductorVehicles({ page: 1, pageSize: 100 });
+      setReservationVehicles(v.vehicles);
+      setVehicleCount(v.total);
+      setHasVehicles(v.total > 0);
+      if (form.plate && !v.vehicles.some((veh) => veh.plate === form.plate)) {
+        const next = v.vehicles[0];
+        setForm((f) => ({
+          ...f,
+          plate: next?.plate ?? "",
+          vehicleType: next?.vehicleType ?? "auto",
+        }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -405,36 +459,6 @@ export function ConductorDashboard() {
       setPendingId(null);
     }
   }
-
-  const selectedBlock = blocks.find((b) => b.id === selectedBlockId);
-  const heldSpot = spots.find((s) => s.id === activeHold?.spotId);
-
-  const mapCenter = useMemo((): [number, number] => {
-    if (selectedBlock?.lat != null && selectedBlock.lng != null) {
-      return [selectedBlock.lat, selectedBlock.lng];
-    }
-    return [-24.7859, -65.4115];
-  }, [selectedBlock]);
-
-  useEffect(() => {
-    const zoneId = selectedBlock?.zoneId;
-    if (!zoneId) {
-      setReferenceImageUrl(null);
-      return;
-    }
-    api
-      .conductorZone(zoneId)
-      .then(({ zone }) => {
-        if (zone.imageBase64 && zone.imageMimeType) {
-          setReferenceImageUrl(
-            `data:${zone.imageMimeType};base64,${zone.imageBase64}`,
-          );
-        } else {
-          setReferenceImageUrl(null);
-        }
-      })
-      .catch(() => setReferenceImageUrl(null));
-  }, [selectedBlock?.zoneId]);
 
   return (
     <AppShell
@@ -464,8 +488,8 @@ export function ConductorDashboard() {
           <h2>Resumen</h2>
           <p className="panel-desc">
             Registrá tus vehículos para recibir avisos cuando haya un permiso de
-            estacionamiento activo con tu patente. Elegí plaza por cuadra y pagá
-            en {holdPaymentMinutes} minutos.
+            estacionamiento activo con tu patente. Reservá en la zona que elijas
+            y pagá con Mercado Pago en {holdPaymentMinutesMp} minutos.
           </p>
           <ZonesMap spots={spots} onZoneSelect={setMapZone} selectedZone={mapZone} />
           <div className="stat-grid">
@@ -674,92 +698,118 @@ export function ConductorDashboard() {
 
       {tab === "reservar" && (
         <section className="panel">
-          <h2>Elegir plaza y pagar</h2>
+          <h2>Reservar plaza</h2>
           <p className="panel-desc">
-            Seleccioná región y cuadra, elegí tu plaza como en el cine y completá
-            el pago en <strong>{holdPaymentMinutes} minutos</strong>. Inicio
-            disponible hasta {maxAdvance} minutos adelante.
+            Elegí zona, vehículo y horario. Se asigna automáticamente la plaza
+            más cercana; podés cambiarla si querés. El cobro se realiza con
+            Mercado Pago del permisionario de la zona ({holdPaymentMinutesMp}{" "}
+            min para completar el pago). Inicio hasta {maxAdvance} minutos
+            adelante.
           </p>
 
-          {geo.loading && (
-            <p className="info-inline">Obteniendo tu ubicación…</p>
-          )}
-          {geo.lat != null && geo.lng != null && (
-            <p className="info-inline geo-ok">
-              Ubicación activa — cuadras ordenadas por distancia.
+          {!hasVehicles && (
+            <p className="form-error">
+              Registrá al menos un vehículo en la pestaña Vehículos antes de
+              reservar.
             </p>
           )}
 
-          <ZonesMap
-            spots={spots}
-            selectedZone={mapZone}
-            onZoneSelect={setMapZone}
-            height={240}
-          />
-
-          {activeHold && (
-            <PaymentHoldBanner
-              hold={activeHold}
-              spotLabel={heldSpot?.label}
-              onPay={payHold}
-              onCancel={cancelHold}
-              onGoPayByCode={() => setTab("pagar")}
-              paying={paying}
-            />
+          {tariffs && ratePerHour != null && form.plate && (
+            <div className="permit-summary-card">
+              <div className="permit-summary-row">
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Conductor</span>
+                  <strong>{user?.name ?? "—"}</strong>
+                  <span className="permit-summary-meta">
+                    {selectedVehicle?.plate ?? form.plate}
+                    {selectedVehicle?.label
+                      ? ` · ${selectedVehicle.label}`
+                      : ""}
+                  </span>
+                </div>
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Zona</span>
+                  <strong>
+                    {zoneLabel(reserveZone, zones) || "Sin seleccionar"}
+                  </strong>
+                </div>
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Tarifa vigente</span>
+                  <strong>${ratePerHour.toLocaleString("es-AR")}/h</strong>
+                  <span className="permit-summary-meta">
+                    {form.vehicleType === "motorcycle"
+                      ? "Motocicleta"
+                      : "Automóvil"}{" "}
+                    · {form.durationHours}{" "}
+                    {form.durationHours === 1 ? "hora" : "horas"}
+                  </span>
+                </div>
+                {cashQuote && (
+                  <div className="permit-summary-item permit-summary-cobro">
+                    <span className="permit-summary-label">Cobro estimado</span>
+                    <strong className="permit-summary-amount">
+                      ${cashQuote.net.toLocaleString("es-AR")}
+                    </strong>
+                    <span className="permit-summary-meta">
+                      {isFreeSpot
+                        ? "Plaza gratuita · no aplica Mercado Pago"
+                        : "Mercado Pago · permisionario de la zona"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="permit-summary-foot">
+                Tolerancia {tariffs.toleranceMinutes} min · Fracción{" "}
+                {tariffs.fractionMinutes} min
+              </p>
+            </div>
           )}
 
           <div className="form-grid reserve-filters">
             <label>
-              Región
-              <select
-                value={selectedRegion}
-                onChange={(e) => {
-                  setSelectedRegion(e.target.value);
-                  setSelectedBlockId("");
-                }}
-              >
-                <option value="">Todas</option>
-                {regionOptions.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Cuadra *
+              Zona *
               <select
                 required
-                value={selectedBlockId}
-                onChange={(e) => setSelectedBlockId(e.target.value)}
+                value={reserveZone}
+                onChange={(e) => setReserveZone(e.target.value)}
               >
                 <option value="" disabled>
-                  Seleccionar cuadra
+                  Seleccionar zona
                 </option>
-                {blocksInRegion.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                    {b.zoneName ? ` · ${b.zoneName}` : ""}
-                    {b.distanceM != null && geo.lat != null
-                      ? ` (${Math.round(b.distanceM)} m)`
-                      : ""}
+                {enabledZones.map((z) => (
+                  <option key={z.id} value={z.code}>
+                    {z.name} ({z.code})
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Patente *
+              Vehículo *
               <select
                 required
                 value={form.plate}
-                onChange={(e) => setForm({ ...form, plate: e.target.value })}
+                disabled={!hasVehicles}
+                onChange={(e) => {
+                  const plate = e.target.value;
+                  const vehicle = reservationVehicles.find(
+                    (v) => v.plate === plate,
+                  );
+                  setForm({
+                    ...form,
+                    plate,
+                    vehicleType: vehicle?.vehicleType ?? "auto",
+                  });
+                }}
               >
                 <option value="" disabled>
-                  Seleccionar patente
+                  Seleccionar vehículo
                 </option>
-                {vehicles.map((v) => (
+                {reservationVehicles.map((v) => (
                   <option key={v.id} value={v.plate}>
                     {v.plate}
+                    {v.label ? ` · ${v.label}` : ""}
+                    {" · "}
+                    {v.vehicleType === "motorcycle" ? "Moto" : "Auto"}
                   </option>
                 ))}
               </select>
@@ -781,7 +831,7 @@ export function ConductorDashboard() {
               </select>
             </label>
             <label>
-              Duración (horas) *
+              Duración *
               <select
                 value={form.durationHours}
                 onChange={(e) =>
@@ -798,47 +848,50 @@ export function ConductorDashboard() {
                 ))}
               </select>
             </label>
-            <label>
-              Vehículo
-              <select
-                value={form.vehicleType}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    vehicleType: e.target.value as "auto" | "motorcycle",
-                  })
-                }
-              >
-                <option value="auto">Automóvil</option>
-                <option value="motorcycle">Motocicleta</option>
-              </select>
-            </label>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={form.digitalPayment}
-                onChange={(e) =>
-                  setForm({ ...form, digitalPayment: e.target.checked })
-                }
-              />
-              Pago digital (−20 %)
-            </label>
           </div>
 
-          <SpotMap
-            spots={blockSpots}
-            mode="pick"
-            center={mapCenter}
-            height={440}
-            referenceImageUrl={referenceImageUrl}
-            imageBounds={defaultImageBounds(mapCenter)}
-            selectedSpotId={selectedSpotId}
-            onSpotSelect={selectSpot}
-            disabled={holding || !!activeHold || !hasVehicles}
-            hint="Tocá una plaza verde en el mapa para reservarla. Imagen de referencia superpuesta al callejero."
-          />
+          {reserveZone && (
+            <PermitSpotPicker
+              zoneCode={reserveZone}
+              zones={enabledZones}
+              selectedSpotId={selectedSpotId}
+              onSpotChange={(id, spot) => {
+                setSelectedSpotId(id);
+                setSelectedSpot(spot);
+              }}
+              disabled={reserving || !hasVehicles}
+              audience="conductor"
+            />
+          )}
 
-          {holding && <p className="info-inline">Reservando plaza…</p>}
+          <div className="action-buttons permit-pay-actions">
+            <button
+              type="button"
+              className="btn-mp"
+              disabled={
+                reserving ||
+                !hasVehicles ||
+                !form.plate ||
+                !selectedSpotId ||
+                isFreeSpot ||
+                !cashQuote ||
+                cashQuote.net <= 0
+              }
+              onClick={() => void reserveAndPay()}
+            >
+              {reserving
+                ? "Generando pago…"
+                : cashQuote
+                  ? `Mercado Pago · $${cashQuote.net.toLocaleString("es-AR")}`
+                  : "Mercado Pago"}
+            </button>
+          </div>
+          {isFreeSpot && (
+            <p className="info-inline">
+              Las plazas gratuitas no se reservan con Mercado Pago. Elegí una
+              plaza de pago o cambiá de zona.
+            </p>
+          )}
         </section>
       )}
 
@@ -933,6 +986,8 @@ export function ConductorDashboard() {
           />
         </section>
       )}
+
+      {tab === "cuenta" && <AccountProfilePanel />}
     </AppShell>
   );
 }

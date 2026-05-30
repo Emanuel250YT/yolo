@@ -2,7 +2,11 @@ import { PERMIT_GRACE_MS } from "../config/permits.js";
 import { getNow, isSimulatedClockActive } from "./devClock.js";
 import { prisma } from "../lib/prisma.js";
 import { expireStalePaymentOrders } from "../store/paymentOrders.js";
-import { adjustOccupancy, expireStaleHolds } from "../store/spots.js";
+import {
+  adjustOccupancy,
+  expireStaleHolds,
+  reconcileSpotOccupancy,
+} from "../store/spots.js";
 
 export async function expireStalePermits(now = getNow()) {
   const toGrace = await prisma.permit.findMany({
@@ -55,7 +59,7 @@ export async function expireStalePermits(now = getNow()) {
     }
   }
 
-  return { count: toGrace.length + toCancel.length };
+  return { enteredGrace: toGrace.length, autoCancelled: toCancel.length };
 }
 
 export async function expireStaleReservations(now = getNow()) {
@@ -87,36 +91,54 @@ export async function expireStaleReservations(now = getNow()) {
   return { count: toExpire.length };
 }
 
+/** Caduca permisos/reservas/holds/pagos y alinea plazas ocupadas con permisos vigentes. */
+export async function refreshParkingState(now = getNow()) {
+  const permits = await expireStalePermits(now);
+  const reservations = await expireStaleReservations(now);
+  const holds = await expireStaleHolds();
+  const paymentOrders = await expireStalePaymentOrders();
+  const reconcile = await reconcileSpotOccupancy(now);
+  return {
+    now,
+    permits,
+    reservations,
+    holds,
+    paymentOrders,
+    reconcile,
+  };
+}
+
 export interface ActiveExpiryResult {
   at: string;
   simulated: boolean;
-  permitsExpired: number;
+  permitsEnteredGrace: number;
+  permitsAutoCancelled: number;
   holdsExpired: number;
   paymentOrdersExpired: number;
   reservationsExpired: number;
+  spotsReconciled: number;
 }
 
 export async function expireAllActiveRecords(): Promise<ActiveExpiryResult> {
-  const now = getNow();
-  const [permits, holds, paymentOrders, reservations] = await Promise.all([
-    expireStalePermits(now),
-    expireStaleHolds(),
-    expireStalePaymentOrders(),
-    expireStaleReservations(now),
-  ]);
+  const result = await refreshParkingState(getNow());
 
   return {
-    at: now.toISOString(),
+    at: result.now.toISOString(),
     simulated: isSimulatedClockActive(),
-    permitsExpired: permits.count,
-    holdsExpired: holds.count,
-    paymentOrdersExpired: paymentOrders.count,
-    reservationsExpired: reservations.count,
+    permitsEnteredGrace: result.permits.enteredGrace,
+    permitsAutoCancelled: result.permits.autoCancelled,
+    holdsExpired: result.holds.count,
+    paymentOrdersExpired: result.paymentOrders.count,
+    reservationsExpired: result.reservations.count,
+    spotsReconciled: result.reconcile.fixed,
   };
 }
 
 /** @deprecated Use expireAllActiveRecords */
 export async function expireStaleRecords() {
   const result = await expireAllActiveRecords();
-  return { permitsExpired: result.permitsExpired };
+  return {
+    permitsExpired:
+      result.permitsEnteredGrace + result.permitsAutoCancelled,
+  };
 }
