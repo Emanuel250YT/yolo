@@ -157,7 +157,12 @@ export const api = {
     request<{ spots: Spot[]; refreshedAt: string }>("/municipio/spots/live"),
   municipioCreateSpotInZone: (
     zoneId: string,
-    payload: { lat: number; lng: number; label?: string },
+    payload: {
+      lat: number;
+      lng: number;
+      label?: string;
+      spotType?: Spot["spotType"];
+    },
   ) =>
     request<{ spot: Spot }>(`/municipio/parking-zones/${zoneId}/spots`, {
       method: "POST",
@@ -168,6 +173,7 @@ export const api = {
     payload: {
       points: { lat: number; lng: number }[];
       spacingM?: number;
+      spotType?: Spot["spotType"];
     },
   ) =>
     request<{
@@ -184,6 +190,14 @@ export const api = {
       `/municipio/spots/${id}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
+  municipioUpdateSpot: (
+    id: string,
+    payload: { spotType?: Spot["spotType"]; label?: string },
+  ) =>
+    request<{ spot: Spot }>(`/municipio/spots/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
 
   tariffs: () => request<TariffsResponse>("/tariffs"),
   shiftStatus: () => request<ShiftStatus>("/shifts/status"),
@@ -264,7 +278,12 @@ export const api = {
     request<{ spots: Spot[]; refreshedAt: string }>("/admin/spots/live"),
   adminCreateSpotInZone: (
     zoneId: string,
-    payload: { lat: number; lng: number; label?: string },
+    payload: {
+      lat: number;
+      lng: number;
+      label?: string;
+      spotType?: Spot["spotType"];
+    },
   ) =>
     request<{ spot: Spot }>(`/admin/parking-zones/${zoneId}/spots`, {
       method: "POST",
@@ -275,6 +294,7 @@ export const api = {
     payload: {
       points: { lat: number; lng: number }[];
       spacingM?: number;
+      spotType?: Spot["spotType"];
     },
   ) =>
     request<{
@@ -307,6 +327,14 @@ export const api = {
       `/admin/spots/${id}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
+  adminUpdateSpot: (
+    id: string,
+    payload: { spotType?: Spot["spotType"]; label?: string },
+  ) =>
+    request<{ spot: Spot }>(`/admin/spots/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   adminSetSpotOccupancy: (id: string, occupied: boolean) =>
     request<{ spot: Spot }>(`/admin/spots/${id}/occupancy`, {
       method: "PATCH",

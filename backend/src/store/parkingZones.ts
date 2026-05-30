@@ -4,7 +4,21 @@ import { generateUniqueRef } from "../lib/shortRef.js";
 export type ParkingPolygon = { points: [number, number][] };
 
 function parsePolygons(raw: unknown): ParkingPolygon[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw) || !raw.length) return [];
+
+  if (
+    Array.isArray(raw[0]) &&
+    typeof (raw[0] as unknown[])[0] === "number"
+  ) {
+    return [
+      {
+        points: (raw as number[][]).map(
+          ([lat, lng]) => [Number(lat), Number(lng)] as [number, number],
+        ),
+      },
+    ];
+  }
+
   return raw
     .filter(
       (p): p is { points: [number, number][] } =>

@@ -22,6 +22,7 @@ import {
   createSpotsAlongLine,
   getSpot,
   listSpotsLive,
+  upsertSpot,
 } from "../store/spots.js";
 import { createUser, findById, listUsers, updateUser } from "../store/users.js";
 
@@ -112,6 +113,7 @@ router.post("/parking-zones/:id/spots", async (req, res) => {
       lat,
       lng,
       label: req.body?.label,
+      spotType: req.body?.spotType,
     });
     const actor = req.user!;
     await logHistory({
@@ -154,6 +156,7 @@ router.post("/parking-zones/:id/spots/along-line", async (req, res) => {
       zoneId: req.params.id,
       points,
       spacingM,
+      spotType: req.body?.spotType,
     });
     const actor = req.user!;
     for (const spot of spots) {
@@ -169,6 +172,29 @@ router.post("/parking-zones/:id/spots/along-line", async (req, res) => {
       });
     }
     res.status(201).json({ spots, created: spots.length, lengthM, spacingM });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
+router.patch("/spots/:id", async (req, res) => {
+  try {
+    const before = await getSpot(req.params.id);
+    const spot = await upsertSpot({ ...req.body, id: req.params.id });
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "update",
+      entityType: "spot",
+      entityId: spot.id,
+      entityRef: spot.ref,
+      entityLabel: spot.label,
+      before: asJson(before),
+      after: asJson(spot),
+    });
+    res.json({ spot });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
     res.status(400).json({ error: message });

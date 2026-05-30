@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { ParkingPolygon, ParkingZone } from "../types";
 import { defaultImageBounds } from "../utils/spotMapStyles";
-import { SALTA_CENTER, polygonCenter } from "../utils/zoneGeo";
+import {
+  extractZonePolygonRings,
+  polygonCenter,
+  SALTA_CENTER,
+} from "../utils/zoneGeo";
 
 interface ZoneBoundaryMapProps {
   polygons: ParkingPolygon[];
@@ -13,6 +17,36 @@ interface ZoneBoundaryMapProps {
   height?: number;
   editable?: boolean;
   hint?: string;
+}
+
+function vertexIcon(color: string) {
+  return L.divIcon({
+    className: "zone-vertex-handle",
+    html: `<span class="zone-vertex-dot" style="border-color:${color}"></span>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+}
+
+function makeDraggableVertex(
+  lat: number,
+  lng: number,
+  color: string,
+  onDragEnd: (lat: number, lng: number) => void,
+) {
+  const marker = L.marker([lat, lng], {
+    draggable: true,
+    icon: vertexIcon(color),
+    zIndexOffset: 1000,
+  });
+  marker.on("dragend", () => {
+    const ll = marker.getLatLng();
+    onDragEnd(ll.lat, ll.lng);
+  });
+  marker.on("click", L.DomEvent.stopPropagation);
+  marker.on("mousedown", L.DomEvent.stopPropagation);
+  marker.on("dblclick", L.DomEvent.stopPropagation);
+  return marker;
 }
 
 export function ZoneBoundaryMap({
@@ -26,20 +60,58 @@ export function ZoneBoundaryMap({
 }: ZoneBoundaryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const layerRef = useRef<L.LayerGroup | null>(null);
+  const otherLayerRef = useRef<L.LayerGroup | null>(null);
+  const activeLayerRef = useRef<L.LayerGroup | null>(null);
+  const vertexLayerRef = useRef<L.LayerGroup | null>(null);
   const overlayRef = useRef<L.ImageOverlay | null>(null);
+  const onPolygonsChangeRef = useRef(onPolygonsChange);
   const [draftPoints, setDraftPoints] = useState<[number, number][]>([]);
   const [fullscreen, setFullscreen] = useState(false);
 
+  onPolygonsChangeRef.current = onPolygonsChange;
+
+  const otherZoneOverlays = useMemo(
+    () =>
+      otherZones
+        .map((z) => ({
+          id: z.id,
+          name: z.name,
+          code: z.code,
+          rings: extractZonePolygonRings(z),
+        }))
+        .filter((z) => z.rings.length > 0),
+    [otherZones],
+  );
+
+  const savedRings = useMemo(
+    () =>
+      polygons
+        .map((p) => extractZonePolygonRings({ polygons: [p] })[0])
+        .filter((ring): ring is [number, number][] => Boolean(ring)),
+    [polygons],
+  );
+
   const mapCenter = useMemo((): [number, number] => {
-    if (polygons[0]?.points?.length >= 3) {
-      return polygonCenter(polygons[0].points);
-    }
-    if (draftPoints.length >= 1) {
-      return polygonCenter(draftPoints);
+    if (savedRings[0]?.length) return polygonCenter(savedRings[0]);
+    if (draftPoints.length >= 1) return polygonCenter(draftPoints);
+    if (otherZoneOverlays[0]?.rings[0]?.length) {
+      return polygonCenter(otherZoneOverlays[0].rings[0]);
     }
     return SALTA_CENTER;
-  }, [polygons, draftPoints]);
+  }, [savedRings, draftPoints, otherZoneOverlays]);
+
+  const fitBoundsLatLngs = useCallback((): L.LatLng[] => {
+    const bounds: L.LatLng[] = [];
+    for (const z of otherZoneOverlays) {
+      for (const ring of z.rings) {
+        ring.forEach(([lat, lng]) => bounds.push(L.latLng(lat, lng)));
+      }
+    }
+    for (const ring of savedRings) {
+      ring.forEach(([lat, lng]) => bounds.push(L.latLng(lat, lng)));
+    }
+    return bounds;
+  }, [otherZoneOverlays, savedRings]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -54,24 +126,20 @@ export function ZoneBoundaryMap({
       attribution: "",
     }).addTo(map);
 
-    layerRef.current = L.layerGroup().addTo(map);
+    otherLayerRef.current = L.layerGroup().addTo(map);
+    activeLayerRef.current = L.layerGroup().addTo(map);
+    vertexLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
 
     return () => {
       map.remove();
       mapRef.current = null;
-      layerRef.current = null;
+      otherLayerRef.current = null;
+      activeLayerRef.current = null;
+      vertexLayerRef.current = null;
       overlayRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    if (polygons[0]?.points?.length >= 3 || draftPoints.length >= 1) {
-      map.setView(mapCenter, map.getZoom() < 14 ? 15 : map.getZoom());
-    }
-  }, [mapCenter, polygons, draftPoints]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -92,75 +160,129 @@ export function ZoneBoundaryMap({
   }, [referenceImageUrl, mapCenter]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    const group = layerRef.current;
-    if (!map || !group) return;
-
+    const group = otherLayerRef.current;
+    if (!group) return;
     group.clearLayers();
-    const bounds: L.LatLng[] = [];
 
-    for (const z of otherZones) {
-      for (const poly of z.polygons) {
-        if (poly.points.length < 3) continue;
-        const latLngs = poly.points.map(([lat, lng]) => L.latLng(lat, lng));
-        latLngs.forEach((ll) => bounds.push(ll));
+    for (const z of otherZoneOverlays) {
+      for (const ring of z.rings) {
+        const latLngs = ring.map(([lat, lng]) => L.latLng(lat, lng));
         L.polygon(latLngs, {
-          color: "#94a3b8",
-          weight: 1,
-          fillColor: "#cbd5e1",
-          fillOpacity: 0.18,
-          dashArray: "4 4",
+          color: "#64748b",
+          weight: 2,
+          fillColor: "#94a3b8",
+          fillOpacity: 0.32,
+          dashArray: "6 4",
+          interactive: false,
         })
-          .bindPopup(`<strong>${z.name}</strong>`)
+          .bindPopup(
+            `<strong>${z.name}</strong><br/><code>${z.code}</code>`,
+          )
           .addTo(group);
+
+        L.marker(polygonCenter(ring), {
+          interactive: false,
+          icon: L.divIcon({
+            className: "zone-map-label zone-map-label--muted",
+            html: `<span>${z.name}</span>`,
+            iconSize: [140, 22],
+            iconAnchor: [70, 11],
+          }),
+        }).addTo(group);
       }
     }
+  }, [otherZoneOverlays]);
 
-    for (const poly of polygons) {
-      if (poly.points.length < 3) continue;
-      const latLngs = poly.points.map(([lat, lng]) => L.latLng(lat, lng));
-      latLngs.forEach((ll) => bounds.push(ll));
+  useEffect(() => {
+    const group = activeLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+
+    for (const ring of savedRings) {
+      const latLngs = ring.map(([lat, lng]) => L.latLng(lat, lng));
       L.polygon(latLngs, {
         color: "#015cb4",
         weight: 3,
         fillColor: "#015cb4",
         fillOpacity: 0.22,
+        interactive: false,
       }).addTo(group);
-
-      for (const [lat, lng] of poly.points) {
-        L.circleMarker([lat, lng], {
-          radius: 5,
-          color: "#015cb4",
-          fillColor: "#fff",
-          fillOpacity: 1,
-          weight: 2,
-        }).addTo(group);
-      }
     }
 
     if (draftPoints.length) {
       const draftLatLngs = draftPoints.map(([lat, lng]) => L.latLng(lat, lng));
-      draftLatLngs.forEach((ll) => bounds.push(ll));
+      if (draftPoints.length >= 3) {
+        L.polygon(draftLatLngs, {
+          color: "#dc2626",
+          weight: 2,
+          fillColor: "#dc2626",
+          fillOpacity: 0.12,
+          dashArray: "6 4",
+          interactive: false,
+        }).addTo(group);
+      }
       L.polyline(draftLatLngs, {
         color: "#dc2626",
         weight: 2,
         dashArray: "6 4",
+        interactive: false,
       }).addTo(group);
-      for (const [lat, lng] of draftPoints) {
-        L.circleMarker([lat, lng], {
-          radius: 4,
-          color: "#dc2626",
-          fillColor: "#fff",
-          fillOpacity: 1,
-          weight: 2,
-        }).addTo(group);
-      }
     }
+  }, [savedRings, draftPoints]);
 
-    if (bounds.length > 1) {
-      map.fitBounds(L.latLngBounds(bounds), { padding: [36, 36], maxZoom: 18 });
+  useEffect(() => {
+    const group = vertexLayerRef.current;
+    if (!group || !editable) return;
+    group.clearLayers();
+
+    draftPoints.forEach(([lat, lng], index) => {
+      makeDraggableVertex(lat, lng, "#dc2626", (newLat, newLng) => {
+        setDraftPoints((pts) =>
+          pts.map((pt, i) => (i === index ? [newLat, newLng] : pt)),
+        );
+      }).addTo(group);
+    });
+
+    if (!draftPoints.length) {
+      savedRings.forEach((ring, polyIndex) => {
+        ring.forEach(([lat, lng], pointIndex) => {
+          makeDraggableVertex(lat, lng, "#015cb4", (newLat, newLng) => {
+            onPolygonsChangeRef.current?.(
+              polygons.map((poly, pi) => {
+                if (pi !== polyIndex) return poly;
+                return {
+                  points: poly.points.map((pt, idx) =>
+                    idx === pointIndex ? [newLat, newLng] : pt,
+                  ),
+                };
+              }),
+            );
+          }).addTo(group);
+        });
+      });
     }
-  }, [polygons, otherZones, draftPoints]);
+  }, [draftPoints, savedRings, editable, polygons]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = fitBoundsLatLngs();
+    if (bounds.length > 1) {
+      map.fitBounds(L.latLngBounds(bounds), { padding: [48, 48], maxZoom: 17 });
+    } else if (bounds.length === 1) {
+      map.setView(bounds[0], Math.max(map.getZoom(), 16));
+    }
+  }, [otherZoneOverlays, savedRings, fitBoundsLatLngs]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !draftPoints.length) return;
+    const last = draftPoints[draftPoints.length - 1];
+    const ll = L.latLng(last[0], last[1]);
+    if (!map.getBounds().contains(ll)) {
+      map.panTo(ll, { animate: true, duration: 0.25 });
+    }
+  }, [draftPoints]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -206,39 +328,70 @@ export function ZoneBoundaryMap({
   }
 
   return (
-    <div className={`spot-map-wrap zone-boundary-map${fullscreen ? " map-fullscreen" : ""}`}>
-      {hint && <p className="spot-map-hint">{hint}</p>}
+    <div
+      className={`spot-map-wrap zone-boundary-map${fullscreen ? " map-fullscreen" : ""}`}
+    >
       <div className="spot-map-toolbar">
-        {editable && (
-          <>
-            <button
-              type="button"
-              className="btn-small"
-              onClick={finishPolygon}
-              disabled={draftPoints.length < 3}
-            >
-              Cerrar polígono ({draftPoints.length} pts)
-            </button>
-            <button
-              type="button"
-              className="btn-small btn-ghost"
-              onClick={undoPoint}
-              disabled={!draftPoints.length}
-            >
-              Deshacer punto
-            </button>
-            <button type="button" className="btn-small btn-ghost" onClick={clearPolygon}>
-              Borrar delimitación
-            </button>
-          </>
+        <div className="spot-map-toolbar__row">
+          {editable && (
+            <>
+              <button
+                type="button"
+                className="btn-small"
+                onClick={finishPolygon}
+                disabled={draftPoints.length < 3}
+              >
+                Cerrar polígono ({draftPoints.length} pts)
+              </button>
+              <button
+                type="button"
+                className="btn-small btn-ghost"
+                onClick={undoPoint}
+                disabled={!draftPoints.length}
+              >
+                Deshacer punto
+              </button>
+              <button
+                type="button"
+                className="btn-small btn-ghost"
+                onClick={clearPolygon}
+              >
+                Borrar delimitación
+              </button>
+            </>
+          )}
+          <span className="spot-map-toolbar__spacer" aria-hidden />
+          <button
+            type="button"
+            className="btn-small map-fullscreen-btn"
+            onClick={() => setFullscreen((v) => !v)}
+          >
+            {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
+          </button>
+        </div>
+        {(hint || otherZoneOverlays.length > 0) && (
+          <div className="spot-map-toolbar__row spot-map-toolbar__row--footer">
+            {hint && <p className="spot-map-hint-inline">{hint}</p>}
+            {otherZoneOverlays.length > 0 && (
+              <div className="zone-boundary-legend zone-boundary-legend--inline">
+                <span className="legend-item">
+                  <i className="legend-swatch legend-swatch--other" />
+                  Zonas existentes ({otherZoneOverlays.length})
+                </span>
+                <span className="legend-item">
+                  <i className="legend-swatch legend-swatch--current" />
+                  Tu zona
+                </span>
+                {draftPoints.length > 0 && (
+                  <span className="legend-item">
+                    <i className="legend-swatch legend-swatch--draft" />
+                    Borrador — arrastrá los puntos
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         )}
-        <button
-          type="button"
-          className="btn-small map-fullscreen-btn"
-          onClick={() => setFullscreen((v) => !v)}
-        >
-          {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
-        </button>
       </div>
       <div
         ref={containerRef}

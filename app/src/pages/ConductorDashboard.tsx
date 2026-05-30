@@ -576,6 +576,11 @@ export function ConductorDashboard() {
                   </p>
                   <p>
                     <span className="chip">{s.zone}</span>
+                    <span
+                      className={`chip${s.spotType === "gratuita" ? " chip--free" : ""}`}
+                    >
+                      {s.spotType === "gratuita" ? "Gratuita" : "Pago"}
+                    </span>
                     <span className={`chip status-chip status-${st}`}>
                       {spotStatusLabel(s)}
                     </span>

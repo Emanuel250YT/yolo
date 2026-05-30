@@ -63,14 +63,57 @@ export function distanceMeters(
 
 export const STREET_SPOT_RADIUS_M = 120;
 
+export function normalizePolygonRing(
+  points: [number, number][] | unknown[],
+): [number, number][] {
+  return points
+    .map((p) => {
+      if (Array.isArray(p) && p.length >= 2) {
+        return [Number(p[0]), Number(p[1])] as [number, number];
+      }
+      if (p && typeof p === "object" && "lat" in p && "lng" in p) {
+        const o = p as { lat: unknown; lng: unknown };
+        return [Number(o.lat), Number(o.lng)] as [number, number];
+      }
+      return null;
+    })
+    .filter(
+      (p): p is [number, number] =>
+        p != null && !Number.isNaN(p[0]) && !Number.isNaN(p[1]),
+    );
+}
+
+export function extractZonePolygonRings(
+  z: { polygons?: { points: [number, number][] }[] | unknown },
+): [number, number][][] {
+  const raw = z.polygons;
+  if (!Array.isArray(raw) || !raw.length) return [];
+
+  if (
+    Array.isArray(raw[0]) &&
+    typeof (raw[0] as unknown[])[0] === "number"
+  ) {
+    const ring = normalizePolygonRing(raw as unknown[]);
+    return ring.length >= 3 ? [ring] : [];
+  }
+
+  return raw
+    .filter(
+      (p): p is { points: [number, number][] } =>
+        Boolean(p) &&
+        typeof p === "object" &&
+        Array.isArray((p as { points?: unknown }).points),
+    )
+    .map((p) => normalizePolygonRing(p.points))
+    .filter((ring) => ring.length >= 3);
+}
+
 export function zoneGeoFromParkingZone(
   z: { code: string; name: string; polygons: { points: [number, number][] }[] },
 ): ZoneGeo | null {
-  const poly = z.polygons.find((p) => p.points.length >= 3);
-  if (!poly) return null;
-  const polygon = poly.points.map(
-    ([lat, lng]) => [Number(lat), Number(lng)] as [number, number],
-  );
+  const rings = extractZonePolygonRings(z);
+  const polygon = rings[0];
+  if (!polygon) return null;
   return {
     code: z.code,
     name: z.name,

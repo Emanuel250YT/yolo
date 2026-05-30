@@ -43,6 +43,11 @@ enum ReservationStatus {
   cancelled
 }
 
+enum SpotType {
+  pago
+  gratuita
+}
+
 enum HistoryAction {
   create
   update
@@ -220,6 +225,7 @@ model Spot {
   lng             Float?
   capacity        Int            @default(1)
   occupied        Int            @default(0)
+  spotType        SpotType       @default(pago)
   enabled         Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

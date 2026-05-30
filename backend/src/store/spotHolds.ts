@@ -55,6 +55,7 @@ export async function createSpotHold(
     minutes: durationMinutes,
     digitalPayment: Boolean(input.digitalPayment),
     tariffs,
+    free: spot.spotType === "gratuita",
   });
 
   const expiresAt = new Date(Date.now() + SPOT_HOLD_MS);

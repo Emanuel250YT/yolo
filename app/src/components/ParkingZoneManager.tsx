@@ -6,6 +6,7 @@ import { ZoneBoundaryMap } from "./ZoneBoundaryMap";
 import { ZonesMap } from "./ZonesMap";
 import { useConfirmModal } from "../hooks/useConfirmModal";
 import { formatRef } from "../utils/formatRef";
+import { extractZonePolygonRings } from "../utils/zoneGeo";
 import type { EntityNavTarget } from "../utils/entityNav";
 import type { ParkingPolygon, ParkingZone } from "../types";
 
@@ -100,6 +101,7 @@ export function ParkingZoneManager({
   function startNewZone() {
     resetEditor();
     setView("edit");
+    void load();
   }
 
   function backToList() {
@@ -251,7 +253,8 @@ export function ParkingZoneManager({
         <section className="panel">
           <p className="panel-desc">
             Delimitá el sector en el mapa haciendo clic en las esquinas de la
-            cuadra. Opcionalmente subí una imagen de referencia.
+            cuadra. Las zonas ya registradas aparecen en gris para evitar
+            superposiciones. Podés arrastrar cada vértice para ajustarlo.
           </p>
 
           <form className="form-grid" onSubmit={saveZone}>
@@ -312,7 +315,7 @@ export function ParkingZoneManager({
               referenceImageUrl={imageSrc}
               editable
               height={480}
-              hint="Clic en el mapa para marcar vértices del polígono. Las zonas existentes aparecen en gris. Usá «Cerrar polígono» cuando termines."
+              hint="Clic para agregar vértices. Arrastrá los puntos rojos (borrador) o azules (zona guardada) para moverlos. Las zonas existentes se muestran en gris."
             />
 
             {otherZones.length > 0 && (
@@ -325,7 +328,7 @@ export function ParkingZoneManager({
                     <li key={z.id}>
                       <span className="zone-chip zone-chip--readonly">
                         <strong>{formatRef(z)}</strong> {z.name}
-                        {z.polygons.some((p) => p.points.length >= 3)
+                        {extractZonePolygonRings(z).length > 0
                           ? ""
                           : " · sin mapa"}
                       </span>

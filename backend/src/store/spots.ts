@@ -2,6 +2,12 @@ import { prisma } from "../lib/prisma.js";
 import { pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 
+export type SpotType = "pago" | "gratuita";
+
+export function parseSpotType(raw: unknown): SpotType {
+  return raw === "gratuita" ? "gratuita" : "pago";
+}
+
 type SpotRow = {
   id: string;
   ref: string | null;
@@ -17,6 +23,7 @@ type SpotRow = {
   lng: number | null;
   capacity: number;
   occupied: number;
+  spotType: SpotType;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -52,6 +59,7 @@ function mapSpotLive(s: SpotRow, viewerUserId?: string) {
     lng: s.lng,
     capacity: s.capacity,
     occupied: s.occupied,
+    spotType: s.spotType ?? "pago",
     enabled: s.enabled,
     status,
     holdId: heldByMe ? activeHold?.id : null,
@@ -132,6 +140,7 @@ export async function upsertSpot(payload: {
   lng?: number;
   capacity?: number;
   occupied?: number;
+  spotType?: SpotType;
   enabled?: boolean;
 }) {
   if (payload.id) {
@@ -155,6 +164,9 @@ export async function upsertSpot(payload: {
           : {}),
         ...(payload.occupied !== undefined
           ? { occupied: Number(payload.occupied) }
+          : {}),
+        ...(payload.spotType !== undefined
+          ? { spotType: parseSpotType(payload.spotType) }
           : {}),
         ...(payload.enabled !== undefined ? { enabled: payload.enabled } : {}),
       },
@@ -185,6 +197,7 @@ export async function upsertSpot(payload: {
       lng: payload.lng ?? null,
       capacity: Number(payload.capacity) || 1,
       occupied: Number(payload.occupied) || 0,
+      spotType: parseSpotType(payload.spotType),
       enabled: payload.enabled !== false,
     },
     include: {
@@ -218,6 +231,7 @@ export async function createSpotAtZonePoint(input: {
   lat: number;
   lng: number;
   label?: string;
+  spotType?: SpotType;
 }) {
   const zone = await prisma.parkingZone.findUnique({
     where: { id: input.zoneId },
@@ -245,6 +259,7 @@ export async function createSpotAtZonePoint(input: {
       lng: input.lng,
       capacity: 1,
       occupied: 0,
+      spotType: parseSpotType(input.spotType),
       enabled: true,
     },
     include: {
@@ -262,6 +277,7 @@ export async function createSpotsAlongLine(input: {
   zoneId: string;
   points: { lat: number; lng: number }[];
   spacingM?: number;
+  spotType?: SpotType;
 }) {
   const zone = await prisma.parkingZone.findUnique({
     where: { id: input.zoneId },
@@ -303,6 +319,7 @@ export async function createSpotsAlongLine(input: {
           lng,
           capacity: 1,
           occupied: 0,
+          spotType: parseSpotType(input.spotType),
           enabled: true,
         },
         include: {
@@ -326,6 +343,7 @@ export async function createSpotAtPoint(input: {
   lat: number;
   lng: number;
   label?: string;
+  spotType?: SpotType;
 }) {
   const block = await prisma.parkingBlock.findUnique({
     where: { id: input.blockId },
@@ -351,6 +369,7 @@ export async function createSpotAtPoint(input: {
       lng: input.lng,
       capacity: 1,
       occupied: 0,
+      spotType: parseSpotType(input.spotType),
       enabled: true,
     },
     include: {

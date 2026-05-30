@@ -17,8 +17,8 @@ import {
   SALTA_CENTER,
   zoneGeoFromParkingZone,
 } from "../utils/zoneGeo";
-import { defaultImageBounds } from "../utils/spotMapStyles";
-import type { ParkingZone, Spot } from "../types";
+import { defaultImageBounds, SPOT_TYPE_LABEL } from "../utils/spotMapStyles";
+import type { ParkingZone, Spot, SpotType } from "../types";
 
 const NEAR_SPOT_M = 25;
 const SPOT_SPACING_M = 5;
@@ -40,15 +40,23 @@ function spotsApi(mode: SpotsApiMode) {
       listSpotsLive: () => api.municipioSpotsLive(),
       createSpot: (
         zoneId: string,
-        payload: { lat: number; lng: number; label?: string },
+        payload: {
+          lat: number;
+          lng: number;
+          label?: string;
+          spotType?: SpotType;
+        },
       ) => api.municipioCreateSpotInZone(zoneId, payload),
       createSpotsAlongLine: (
         zoneId: string,
         payload: {
           points: { lat: number; lng: number }[];
           spacingM?: number;
+          spotType?: SpotType;
         },
       ) => api.municipioCreateSpotsAlongLine(zoneId, payload),
+      updateSpot: (id: string, payload: { spotType: SpotType }) =>
+        api.municipioUpdateSpot(id, payload),
       deleteSpot: (id: string, force?: boolean) =>
         api.municipioDeleteSpot(id, force),
     };
@@ -59,15 +67,23 @@ function spotsApi(mode: SpotsApiMode) {
     listSpotsLive: () => api.adminSpotsLive(),
     createSpot: (
       zoneId: string,
-      payload: { lat: number; lng: number; label?: string },
+      payload: {
+        lat: number;
+        lng: number;
+        label?: string;
+        spotType?: SpotType;
+      },
     ) => api.adminCreateSpotInZone(zoneId, payload),
     createSpotsAlongLine: (
       zoneId: string,
       payload: {
         points: { lat: number; lng: number }[];
         spacingM?: number;
+        spotType?: SpotType;
       },
     ) => api.adminCreateSpotsAlongLine(zoneId, payload),
+    updateSpot: (id: string, payload: { spotType: SpotType }) =>
+      api.adminUpdateSpot(id, payload),
     deleteSpot: (id: string, force?: boolean) =>
       api.adminDeleteSpot(id, force),
   };
@@ -111,6 +127,7 @@ export function SpotBlockManager({
   const [streetPoints, setStreetPoints] = useState<[number, number][]>([]);
   const [generating, setGenerating] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [newSpotType, setNewSpotType] = useState<SpotType>("pago");
 
   const load = useCallback(async () => {
     setError(null);
@@ -287,7 +304,11 @@ export function SpotBlockManager({
     if (!validateInZone(lat, lng)) return;
     setError(null);
     try {
-      await spotsApiClient.createSpot(zoneId, { lat, lng });
+      await spotsApiClient.createSpot(zoneId, {
+        lat,
+        lng,
+        spotType: newSpotType,
+      });
       await refreshSpots();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al crear plaza");
@@ -342,6 +363,7 @@ export function SpotBlockManager({
         {
           points: streetPoints.map(([lat, lng]) => ({ lat, lng })),
           spacingM: SPOT_SPACING_M,
+          spotType: newSpotType,
         },
       );
       setStreetPoints([]);
@@ -353,6 +375,17 @@ export function SpotBlockManager({
       setError(err instanceof Error ? err.message : "Error al generar plazas");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function toggleSpotType(spot: Spot) {
+    const next: SpotType = spot.spotType === "gratuita" ? "pago" : "gratuita";
+    setError(null);
+    try {
+      await spotsApiClient.updateSpot(spot.id, { spotType: next });
+      await refreshSpots();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al actualizar tipo");
     }
   }
 
@@ -377,112 +410,6 @@ export function SpotBlockManager({
           existentes se muestran en gris como referencia.
         </p>
 
-        <div className="sector-map-toolbar form-grid">
-          <label>
-            Zona *
-            <SearchableSelect
-              required
-              value={zoneId}
-              onChange={(id) => {
-                setZoneId(id);
-                setSelectedSpotId(null);
-              }}
-              options={zones.map((z) => ({
-                value: z.id,
-                label: `${formatRef(z)} · ${z.name}`,
-              }))}
-              searchPlaceholder="Buscar zona…"
-            />
-          </label>
-          <label>
-            Herramienta
-            <select
-              value={mapTool}
-              onChange={(e) => setMapTool(e.target.value as MapTool)}
-            >
-              <option value="point">Plaza individual (clic)</option>
-              <option value="street">Tramo de calle (cada 5 m)</option>
-            </select>
-          </label>
-        </div>
-
-        {zones.length > 0 && (
-          <div className="existing-zones-panel">
-            <span className="existing-zones-label">
-              Zonas existentes ({zones.length}):
-            </span>
-            <ul className="existing-zones-chips">
-              {zones.map((z) => (
-                <li key={z.id}>
-                  <button
-                    type="button"
-                    className={`zone-chip${z.id === zoneId ? " zone-chip--active" : ""}`}
-                    onClick={() => {
-                      setZoneId(z.id);
-                      setSelectedSpotId(null);
-                    }}
-                  >
-                    <strong>{formatRef(z)}</strong> {z.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {selectedZone && (
-          <p className="info-inline">
-            Zona{" "}
-            <RefCell refId={formatRef(selectedZone)} entityKind="zone" /> ·{" "}
-            <strong>{selectedZone.name}</strong> · {zoneSpotStats.total} plazas
-            ({zoneSpotStats.available} libres, {zoneSpotStats.occupied} ocupadas
-            {zoneSpotStats.held > 0 ? `, ${zoneSpotStats.held} en hold` : ""})
-            {!hasZoneBoundary && (
-              <span className="meta"> · Sin polígono — definilo en Zonas</span>
-            )}
-          </p>
-        )}
-
-        {mapTool === "street" && streetPoints.length > 0 && (
-          <div className="street-tramo-bar">
-            <span>
-              Tramo: <strong>{formatMeters(streetLengthM)}</strong> · ~
-              <strong>{streetSpotEstimate}</strong> plazas (cada {SPOT_SPACING_M}{" "}
-              m)
-            </span>
-            <div className="street-tramo-actions">
-              <button
-                type="button"
-                className="btn-small btn-ghost"
-                onClick={() => setStreetPoints((pts) => pts.slice(0, -1))}
-                disabled={!streetPoints.length || generating}
-              >
-                Deshacer punto
-              </button>
-              <button
-                type="button"
-                className="btn-small btn-ghost"
-                onClick={() => setStreetPoints([])}
-                disabled={!streetPoints.length || generating}
-              >
-                Limpiar tramo
-              </button>
-              <button
-                type="button"
-                className="btn-small btn-primary"
-                onClick={() => void generateSpotsAlongStreet()}
-                disabled={
-                  streetPoints.length < 2 || generating || !hasZoneBoundary
-                }
-              >
-                {generating
-                  ? "Generando…"
-                  : `Generar ${streetSpotEstimate} plazas`}
-              </button>
-            </div>
-          </div>
-        )}
-
         <SpotMap
           spots={zoneSpots}
           mode="manage"
@@ -502,6 +429,124 @@ export function SpotBlockManager({
           onSpotSelect={(s) => setSelectedSpotId(s.id)}
           disabled={!hasZoneBoundary || !zoneId}
           hint={mapHint}
+          toolbar={
+            <>
+              <label className="map-toolbar-field">
+                <span className="map-toolbar-label">Zona</span>
+                <SearchableSelect
+                  required
+                  value={zoneId}
+                  onChange={(id) => {
+                    setZoneId(id);
+                    setSelectedSpotId(null);
+                  }}
+                  options={zones.map((z) => ({
+                    value: z.id,
+                    label: `${formatRef(z)} · ${z.name}`,
+                  }))}
+                  searchPlaceholder="Buscar zona…"
+                />
+              </label>
+              <label className="map-toolbar-field">
+                <span className="map-toolbar-label">Herramienta</span>
+                <select
+                  value={mapTool}
+                  onChange={(e) => setMapTool(e.target.value as MapTool)}
+                >
+                  <option value="point">Plaza individual (clic)</option>
+                  <option value="street">Tramo de calle (cada 5 m)</option>
+                </select>
+              </label>
+              <label className="map-toolbar-field">
+                <span className="map-toolbar-label">Tipo nuevo</span>
+                <select
+                  value={newSpotType}
+                  onChange={(e) =>
+                    setNewSpotType(e.target.value as SpotType)
+                  }
+                >
+                  <option value="pago">Pago</option>
+                  <option value="gratuita">Gratuita</option>
+                </select>
+              </label>
+              {mapTool === "street" && streetPoints.length > 0 && (
+                <>
+                  <span className="map-toolbar-meta">
+                    Tramo: <strong>{formatMeters(streetLengthM)}</strong> · ~
+                    <strong>{streetSpotEstimate}</strong> plazas
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-small btn-ghost"
+                    onClick={() => setStreetPoints((pts) => pts.slice(0, -1))}
+                    disabled={!streetPoints.length || generating}
+                  >
+                    Deshacer punto
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small btn-ghost"
+                    onClick={() => setStreetPoints([])}
+                    disabled={!streetPoints.length || generating}
+                  >
+                    Limpiar tramo
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small btn-primary"
+                    onClick={() => void generateSpotsAlongStreet()}
+                    disabled={
+                      streetPoints.length < 2 || generating || !hasZoneBoundary
+                    }
+                  >
+                    {generating
+                      ? "Generando…"
+                      : `Generar ${streetSpotEstimate} plazas`}
+                  </button>
+                </>
+              )}
+            </>
+          }
+          toolbarFooter={
+            <>
+              {zones.length > 0 && (
+                <div className="map-toolbar-chips">
+                  <span className="map-toolbar-chips-label">Zonas:</span>
+                  <ul className="existing-zones-chips">
+                    {zones.map((z) => (
+                      <li key={z.id}>
+                        <button
+                          type="button"
+                          className={`zone-chip${z.id === zoneId ? " zone-chip--active" : ""}`}
+                          onClick={() => {
+                            setZoneId(z.id);
+                            setSelectedSpotId(null);
+                          }}
+                        >
+                          <strong>{formatRef(z)}</strong> {z.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {selectedZone && (
+                <p className="map-toolbar-zone-stats">
+                  <RefCell refId={formatRef(selectedZone)} entityKind="zone" /> ·{" "}
+                  <strong>{selectedZone.name}</strong> · {zoneSpotStats.total}{" "}
+                  plazas ({zoneSpotStats.available} libres,{" "}
+                  {zoneSpotStats.occupied} ocupadas
+                  {zoneSpotStats.held > 0
+                    ? `, ${zoneSpotStats.held} en hold`
+                    : ""}
+                  )
+                  {!hasZoneBoundary && (
+                    <span className="meta"> · Sin polígono</span>
+                  )}
+                </p>
+              )}
+            </>
+          }
         />
       </section>
 
@@ -522,6 +567,14 @@ export function SpotBlockManager({
                   { value: "available", label: "Disponible" },
                   { value: "occupied", label: "Ocupada" },
                   { value: "held", label: "En hold" },
+                ],
+              },
+              {
+                key: "spotType",
+                label: "Tipo",
+                options: [
+                  { value: "pago", label: "Pago" },
+                  { value: "gratuita", label: "Gratuita" },
                 ],
               },
             ]}
@@ -553,6 +606,19 @@ export function SpotBlockManager({
                 render: (s) => s.label,
               },
               {
+                key: "spotType",
+                header: "Tipo",
+                filterKey: "spotType",
+                searchValues: (s) => [s.spotType ?? "pago"],
+                render: (s) => (
+                  <span
+                    className={`chip${s.spotType === "gratuita" ? " chip--free" : ""}`}
+                  >
+                    {SPOT_TYPE_LABEL[s.spotType ?? "pago"]}
+                  </span>
+                ),
+              },
+              {
                 key: "status",
                 header: "Estado",
                 filterKey: "status",
@@ -572,6 +638,13 @@ export function SpotBlockManager({
                       onClick={() => setSelectedSpotId(s.id)}
                     >
                       Ver
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-small"
+                      onClick={() => void toggleSpotType(s)}
+                    >
+                      {s.spotType === "gratuita" ? "Marcar pago" : "Marcar gratis"}
                     </button>
                     <button
                       type="button"

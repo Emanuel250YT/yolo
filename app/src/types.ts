@@ -194,6 +194,8 @@ export interface HistoryEntry {
   createdAt: string;
 }
 
+export type SpotType = "pago" | "gratuita";
+
 export interface Spot {
   id: string;
   ref?: string | null;
@@ -212,6 +214,7 @@ export interface Spot {
   lng?: number | null;
   capacity: number;
   occupied: number;
+  spotType: SpotType;
   enabled: boolean;
   status?: "available" | "held" | "occupied" | "disabled";
   holdId?: string | null;

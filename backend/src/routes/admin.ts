@@ -329,6 +329,7 @@ router.post("/parking-zones/:id/spots", async (req, res) => {
       lat,
       lng,
       label: req.body?.label,
+      spotType: req.body?.spotType,
     });
     const actor = req.user!;
     await logHistory({
@@ -371,6 +372,7 @@ router.post("/parking-zones/:id/spots/along-line", async (req, res) => {
       zoneId: req.params.id,
       points,
       spacingM,
+      spotType: req.body?.spotType,
     });
     const actor = req.user!;
     for (const spot of spots) {
@@ -435,6 +437,7 @@ router.post("/blocks/:id/spots", async (req, res) => {
       lat,
       lng,
       label: req.body?.label,
+      spotType: req.body?.spotType,
     });
     res.status(201).json({ spot });
   } catch (err) {

@@ -8,6 +8,7 @@ import {
   resolveSpotLatLng,
   SPOT_STATUS_COLOR,
   SPOT_STATUS_LABEL,
+  SPOT_TYPE_LABEL,
   spotStatusOf,
 } from "../utils/spotMapStyles";
 
@@ -51,6 +52,7 @@ interface SpotMapProps {
   disabled?: boolean;
   allowFullscreen?: boolean;
   toolbar?: React.ReactNode;
+  toolbarFooter?: React.ReactNode;
 }
 
 function spotIcon(spot: Spot, selected: boolean) {
@@ -59,9 +61,13 @@ function spotIcon(spot: Spot, selected: boolean) {
   const label = spot.label.replace(/^P-?/, "").slice(0, 4);
   const ring = selected ? "box-shadow:0 0 0 3px #015cb4;" : "";
   const mine = spot.heldByMe ? "border:2px solid #7c3aed;" : "";
+  const free =
+    spot.spotType === "gratuita"
+      ? "outline:2px dashed #fff;outline-offset:1px;"
+      : "";
   return L.divIcon({
     className: "spot-map-marker-wrap",
-    html: `<span class="spot-map-marker status-${status}" style="background:${color};${ring}${mine}">${label}</span>`,
+    html: `<span class="spot-map-marker status-${status}${spot.spotType === "gratuita" ? " spot-map-marker--free" : ""}" style="background:${color};${ring}${mine}${free}">${label}</span>`,
     iconSize: [36, 36],
     iconAnchor: [18, 18],
   });
@@ -101,6 +107,7 @@ export function SpotMap({
   disabled,
   allowFullscreen = true,
   toolbar,
+  toolbarFooter,
 }: SpotMapProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -348,7 +355,7 @@ export function SpotMap({
       });
 
       marker.bindPopup(
-        `<strong>${spot.label}</strong><br/>${SPOT_STATUS_LABEL[status] ?? status}<br/>${spot.blockStreet || spot.address || ""}`,
+        `<strong>${spot.label}</strong><br/>${SPOT_STATUS_LABEL[status] ?? status}<br/>${SPOT_TYPE_LABEL[spot.spotType ?? "pago"] ?? spot.spotType}<br/>${spot.blockStreet || spot.address || ""}`,
       );
 
       marker.on("click", (e) => {
@@ -441,18 +448,26 @@ export function SpotMap({
       className={`spot-map-wrap${fullscreen ? " map-fullscreen" : ""}`}
     >
       <div className="spot-map-toolbar">
-        {toolbar}
-        {allowFullscreen && (
-          <button
-            type="button"
-            className="btn-small map-fullscreen-btn"
-            onClick={() => setFullscreen((v) => !v)}
-          >
-            {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
-          </button>
+        <div className="spot-map-toolbar__row">
+          {toolbar}
+          <span className="spot-map-toolbar__spacer" aria-hidden />
+          {allowFullscreen && (
+            <button
+              type="button"
+              className="btn-small map-fullscreen-btn"
+              onClick={() => setFullscreen((v) => !v)}
+            >
+              {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
+            </button>
+          )}
+        </div>
+        {(toolbarFooter || hint) && (
+          <div className="spot-map-toolbar__row spot-map-toolbar__row--footer">
+            {toolbarFooter}
+            {hint && <p className="spot-map-hint-inline">{hint}</p>}
+          </div>
         )}
       </div>
-      {hint && <p className="spot-map-hint">{hint}</p>}
       <div
         ref={containerRef}
         className="spot-map zones-map"
@@ -486,6 +501,10 @@ export function SpotMap({
           </span>
         )}
         <span className="legend-title">Plazas</span>
+        <span className="legend-item">
+          <i style={{ background: "#22c55e", outline: "2px dashed #fff" }} />
+          Gratuita (libre)
+        </span>
         {Object.entries(SPOT_STATUS_LABEL).map(([key, label]) => (
           <span key={key} className="legend-item">
             <i style={{ background: SPOT_STATUS_COLOR[key] }} />

@@ -1,6 +1,11 @@
 import type { Spot } from "../types";
 import { spotLiveStatus } from "./geo";
 
+export const SPOT_TYPE_LABEL: Record<string, string> = {
+  pago: "Pago",
+  gratuita: "Gratuita",
+};
+
 export const SPOT_STATUS_COLOR: Record<string, string> = {
   available: "#22c55e",
   held: "#f59e0b",

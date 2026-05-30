@@ -101,6 +101,7 @@ export async function createReservation(
     vehicleType: input.vehicleType === "motorcycle" ? "motorcycle" : "auto",
     minutes,
     digitalPayment: Boolean(input.digitalPayment),
+    free: spot.spotType === "gratuita",
   });
 
   const reservation = await prisma.reservation.create({

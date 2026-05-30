@@ -6,6 +6,7 @@ export interface PricingInput {
   minutes?: number;
   digitalPayment?: boolean;
   tariffs?: TariffConfig;
+  free?: boolean;
 }
 
 export function calculateAmount({
@@ -13,7 +14,11 @@ export function calculateAmount({
   minutes = 0,
   digitalPayment = false,
   tariffs = TARIFFS,
+  free = false,
 }: PricingInput) {
+  if (free) {
+    return finalize(0, false, tariffs);
+  }
   const rate =
     vehicleType === "motorcycle"
       ? tariffs.motorcyclePerHour
