@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.js";
+import { getAppMeta } from "../config/appMeta.js";
+import { isDevToolsEnabled } from "../config/devTools.js";
 import { authResponse } from "../services/authTokens.js";
 import {
   getRegistrationConfig,
@@ -10,7 +12,11 @@ import { findByEmail, sanitizeUser, verifyPassword } from "../store/users.js";
 const router = Router();
 
 router.get("/config", (_req, res) => {
-  res.json(getRegistrationConfig());
+  res.json({
+    ...getRegistrationConfig(),
+    devTools: isDevToolsEnabled(),
+    ...getAppMeta(),
+  });
 });
 
 router.post("/login", async (req, res) => {

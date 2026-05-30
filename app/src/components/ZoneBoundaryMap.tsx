@@ -29,6 +29,7 @@ export function ZoneBoundaryMap({
   const layerRef = useRef<L.LayerGroup | null>(null);
   const overlayRef = useRef<L.ImageOverlay | null>(null);
   const [draftPoints, setDraftPoints] = useState<[number, number][]>([]);
+  const [fullscreen, setFullscreen] = useState(false);
 
   const mapCenter = useMemo((): [number, number] => {
     if (polygons[0]?.points?.length >= 3) {
@@ -176,11 +177,18 @@ export function ZoneBoundaryMap({
   }, [editable, onPolygonsChange]);
 
   useEffect(() => {
+    document.body.classList.toggle("map-fullscreen-active", fullscreen);
+    return () => document.body.classList.remove("map-fullscreen-active");
+  }, [fullscreen]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const t = window.setTimeout(() => map.invalidateSize(), 120);
     return () => window.clearTimeout(t);
-  }, [height]);
+  }, [height, fullscreen]);
+
+  const mapHeight = fullscreen ? "calc(100vh - 10rem)" : height;
 
   function finishPolygon() {
     if (draftPoints.length < 3) return;
@@ -198,35 +206,44 @@ export function ZoneBoundaryMap({
   }
 
   return (
-    <div className="spot-map-wrap zone-boundary-map">
+    <div className={`spot-map-wrap zone-boundary-map${fullscreen ? " map-fullscreen" : ""}`}>
       {hint && <p className="spot-map-hint">{hint}</p>}
-      {editable && (
-        <div className="zone-map-toolbar">
-          <button
-            type="button"
-            className="btn-small"
-            onClick={finishPolygon}
-            disabled={draftPoints.length < 3}
-          >
-            Cerrar polígono ({draftPoints.length} pts)
-          </button>
-          <button
-            type="button"
-            className="btn-small btn-ghost"
-            onClick={undoPoint}
-            disabled={!draftPoints.length}
-          >
-            Deshacer punto
-          </button>
-          <button type="button" className="btn-small btn-ghost" onClick={clearPolygon}>
-            Borrar delimitación
-          </button>
-        </div>
-      )}
+      <div className="spot-map-toolbar">
+        {editable && (
+          <>
+            <button
+              type="button"
+              className="btn-small"
+              onClick={finishPolygon}
+              disabled={draftPoints.length < 3}
+            >
+              Cerrar polígono ({draftPoints.length} pts)
+            </button>
+            <button
+              type="button"
+              className="btn-small btn-ghost"
+              onClick={undoPoint}
+              disabled={!draftPoints.length}
+            >
+              Deshacer punto
+            </button>
+            <button type="button" className="btn-small btn-ghost" onClick={clearPolygon}>
+              Borrar delimitación
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className="btn-small map-fullscreen-btn"
+          onClick={() => setFullscreen((v) => !v)}
+        >
+          {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
+        </button>
+      </div>
       <div
         ref={containerRef}
         className="zones-map spot-map"
-        style={{ height }}
+        style={{ height: mapHeight }}
         role="application"
         aria-label="Mapa de delimitación de zona"
       />

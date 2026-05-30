@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 
 type SpotRow = {
@@ -255,6 +256,69 @@ export async function createSpotAtZonePoint(input: {
     },
   });
   return mapSpotLive(s);
+}
+
+export async function createSpotsAlongLine(input: {
+  zoneId: string;
+  points: { lat: number; lng: number }[];
+  spacingM?: number;
+}) {
+  const zone = await prisma.parkingZone.findUnique({
+    where: { id: input.zoneId },
+  });
+  if (!zone) throw new Error("Zona no encontrada.");
+
+  const vertices = input.points.map(
+    (p) => [p.lat, p.lng] as [number, number],
+  );
+  const spacingM = input.spacingM ?? 5;
+  const positions = pointsAlongPolyline(vertices, spacingM);
+  if (!positions.length) {
+    throw new Error("No se pudieron calcular posiciones a lo largo de la calle.");
+  }
+
+  const lengthM = polylineLengthMeters(vertices);
+  const startCount = await prisma.spot.count({
+    where: { parkingZoneId: zone.id },
+  });
+
+  const spots = await prisma.$transaction(async (tx) => {
+    const created = [];
+    for (let i = 0; i < positions.length; i++) {
+      const [lat, lng] = positions[i];
+      const index = startCount + i + 1;
+      const label = `P-${String(index).padStart(2, "0")}`;
+      const s = await tx.spot.create({
+        data: {
+          ref: await generateUniqueRef("spot"),
+          blockId: null,
+          parkingZoneId: zone.id,
+          region: zone.region,
+          zone: zone.code,
+          label,
+          row: Math.floor((index - 1) / 5),
+          col: (index - 1) % 5,
+          address: zone.name,
+          lat,
+          lng,
+          capacity: 1,
+          occupied: 0,
+          enabled: true,
+        },
+        include: {
+          block: { select: { name: true, street: true, code: true } },
+          holds: {
+            where: { expiresAt: { gt: new Date() } },
+            select: { id: true, userId: true, expiresAt: true },
+          },
+        },
+      });
+      created.push(mapSpotLive(s));
+    }
+    return created;
+  });
+
+  return { spots, lengthM };
 }
 
 export async function createSpotAtPoint(input: {

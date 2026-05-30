@@ -5,14 +5,22 @@ import { useDevTools } from "./DevToolsContext";
 import type { DevShiftOverride } from "./devConfig";
 
 export function DevToolsPanel() {
-  const { enabled, shiftOverride, setShiftOverride, geoOverride, setGeoOverride } =
-    useDevTools();
+  const {
+    enabled,
+    ready,
+    clientEnabled,
+    serverEnabled,
+    shiftOverride,
+    setShiftOverride,
+    geoOverride,
+    setGeoOverride,
+  } = useDevTools();
   const { user, login } = useAuth();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!enabled) return null;
+  if (!ready || !enabled) return null;
 
   const accounts = parseDevAccounts();
 
@@ -43,6 +51,10 @@ export function DevToolsPanel() {
       {open && (
         <div className="dev-tools-panel">
           <h4 className="dev-tools-title">Herramientas de desarrollo</h4>
+          <p className="dev-tools-meta">
+            Frontend: {clientEnabled ? "on" : "off"} · Servidor:{" "}
+            {serverEnabled ? "on" : "off"}
+          </p>
 
           {user && (
             <p className="dev-tools-meta">

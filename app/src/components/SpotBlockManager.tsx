@@ -6,8 +6,14 @@ import { SpotMap } from "./SpotMap";
 import { formatRef } from "../utils/formatRef";
 import type { EntityNavTarget } from "../utils/entityNav";
 import {
+  estimateSpotCount,
+  formatMeters,
+} from "../utils/polylineSpots";
+import {
   distanceMeters,
   pointInAnyPolygon,
+  pointsAlongPolyline,
+  polylineLengthMeters,
   SALTA_CENTER,
   zoneGeoFromParkingZone,
 } from "../utils/zoneGeo";
@@ -15,10 +21,56 @@ import { defaultImageBounds } from "../utils/spotMapStyles";
 import type { ParkingZone, Spot } from "../types";
 
 const NEAR_SPOT_M = 25;
+const SPOT_SPACING_M = 5;
+
+type MapTool = "point" | "street";
+type SpotsApiMode = "admin" | "municipio";
 
 interface SpotBlockManagerProps {
+  apiMode?: SpotsApiMode;
   navTarget?: EntityNavTarget | null;
   onNavHandled?: () => void;
+}
+
+function spotsApi(mode: SpotsApiMode) {
+  if (mode === "municipio") {
+    return {
+      listZones: () => api.municipioParkingZones(),
+      getZone: (id: string) => api.municipioParkingZone(id),
+      listSpotsLive: () => api.municipioSpotsLive(),
+      createSpot: (
+        zoneId: string,
+        payload: { lat: number; lng: number; label?: string },
+      ) => api.municipioCreateSpotInZone(zoneId, payload),
+      createSpotsAlongLine: (
+        zoneId: string,
+        payload: {
+          points: { lat: number; lng: number }[];
+          spacingM?: number;
+        },
+      ) => api.municipioCreateSpotsAlongLine(zoneId, payload),
+      deleteSpot: (id: string, force?: boolean) =>
+        api.municipioDeleteSpot(id, force),
+    };
+  }
+  return {
+    listZones: () => api.adminParkingZones(),
+    getZone: (id: string) => api.adminParkingZone(id),
+    listSpotsLive: () => api.adminSpotsLive(),
+    createSpot: (
+      zoneId: string,
+      payload: { lat: number; lng: number; label?: string },
+    ) => api.adminCreateSpotInZone(zoneId, payload),
+    createSpotsAlongLine: (
+      zoneId: string,
+      payload: {
+        points: { lat: number; lng: number }[];
+        spacingM?: number;
+      },
+    ) => api.adminCreateSpotsAlongLine(zoneId, payload),
+    deleteSpot: (id: string, force?: boolean) =>
+      api.adminDeleteSpot(id, force),
+  };
 }
 
 function nearestSpot(
@@ -41,9 +93,11 @@ function nearestSpot(
 }
 
 export function SpotBlockManager({
+  apiMode = "admin",
   navTarget,
   onNavHandled,
 }: SpotBlockManagerProps) {
+  const spotsApiClient = useMemo(() => spotsApi(apiMode), [apiMode]);
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [zoneId, setZoneId] = useState("");
@@ -53,13 +107,17 @@ export function SpotBlockManager({
   );
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mapTool, setMapTool] = useState<MapTool>("point");
+  const [streetPoints, setStreetPoints] = useState<[number, number][]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const [z, s] = await Promise.all([
-        api.adminParkingZones(),
-        api.adminSpotsLive(),
+        spotsApiClient.listZones(),
+        spotsApiClient.listSpotsLive(),
       ]);
       setZones(z.zones);
       setSpots(s.spots);
@@ -67,7 +125,7 @@ export function SpotBlockManager({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar");
     }
-  }, []);
+  }, [spotsApiClient]);
 
   useEffect(() => {
     load();
@@ -79,8 +137,8 @@ export function SpotBlockManager({
       setReferenceImageUrl(null);
       return;
     }
-    api
-      .adminParkingZone(zoneId)
+    spotsApiClient
+      .getZone(zoneId)
       .then(({ zone }) => {
         setZoneDetail(zone);
         if (zone.imageBase64 && zone.imageMimeType) {
@@ -95,7 +153,11 @@ export function SpotBlockManager({
         setZoneDetail(null);
         setReferenceImageUrl(null);
       });
-  }, [zoneId]);
+  }, [zoneId, spotsApiClient]);
+
+  useEffect(() => {
+    setStreetPoints([]);
+  }, [zoneId, mapTool]);
 
   useEffect(() => {
     if (!navTarget) return;
@@ -143,6 +205,23 @@ export function SpotBlockManager({
       );
   }, [zoneDetail, selectedZone]);
 
+  const otherZones = useMemo(() => {
+    return zones
+      .filter((z) => z.id !== zoneId)
+      .map((z) => ({
+        name: z.name,
+        code: z.code,
+        polygons: (z.polygons ?? [])
+          .filter((p) => p.points.length >= 3)
+          .map((p) =>
+            p.points.map(
+              ([lat, lng]) => [Number(lat), Number(lng)] as [number, number],
+            ),
+          ),
+      }))
+      .filter((z) => z.polygons.length > 0);
+  }, [zones, zoneId]);
+
   const hasZoneBoundary = zonePolygons.length > 0;
 
   const zoneSpots = useMemo(
@@ -166,6 +245,21 @@ export function SpotBlockManager({
     return SALTA_CENTER;
   }, [selectedZone]);
 
+  const streetLengthM = useMemo(
+    () => polylineLengthMeters(streetPoints),
+    [streetPoints],
+  );
+
+  const streetPreviewPoints = useMemo(() => {
+    if (streetPoints.length < 2) return [];
+    return pointsAlongPolyline(streetPoints, SPOT_SPACING_M);
+  }, [streetPoints]);
+
+  const streetSpotEstimate = useMemo(
+    () => estimateSpotCount(streetPoints, SPOT_SPACING_M),
+    [streetPoints],
+  );
+
   function validateInZone(lat: number, lng: number): boolean {
     if (!hasZoneBoundary) {
       setError(
@@ -174,14 +268,14 @@ export function SpotBlockManager({
       return false;
     }
     if (!pointInAnyPolygon(lat, lng, zonePolygons)) {
-      setError("La plaza debe estar dentro del límite de la zona seleccionada.");
+      setError("El punto debe estar dentro del límite de la zona seleccionada.");
       return false;
     }
     return true;
   }
 
   async function refreshSpots() {
-    const { spots: live } = await api.adminSpotsLive();
+    const { spots: live } = await spotsApiClient.listSpotsLive();
     setSpots(live);
   }
 
@@ -193,11 +287,21 @@ export function SpotBlockManager({
     if (!validateInZone(lat, lng)) return;
     setError(null);
     try {
-      await api.adminCreateSpotInZone(zoneId, { lat, lng });
+      await spotsApiClient.createSpot(zoneId, { lat, lng });
       await refreshSpots();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al crear plaza");
     }
+  }
+
+  function handleMapClick(lat: number, lng: number) {
+    if (mapTool === "street") {
+      if (!validateInZone(lat, lng)) return;
+      setError(null);
+      setStreetPoints((pts) => [...pts, [lat, lng]]);
+      return;
+    }
+    void addSpotAt(lat, lng);
   }
 
   async function removeSpotAt(lat: number, lng: number, spot?: Spot) {
@@ -209,7 +313,7 @@ export function SpotBlockManager({
     }
     setError(null);
     try {
-      await api.adminDeleteSpot(target.id, true);
+      await spotsApiClient.deleteSpot(target.id, true);
       if (selectedSpotId === target.id) setSelectedSpotId(null);
       await refreshSpots();
     } catch (err) {
@@ -217,15 +321,60 @@ export function SpotBlockManager({
     }
   }
 
+  async function generateSpotsAlongStreet() {
+    if (!zoneId) {
+      setError("Seleccioná una zona.");
+      return;
+    }
+    if (streetPoints.length < 2) {
+      setError("Marcá al menos 2 puntos del tramo de calle en el mapa.");
+      return;
+    }
+    if (streetPreviewPoints.some(([lat, lng]) => !pointInAnyPolygon(lat, lng, zonePolygons))) {
+      setError("Todo el tramo debe quedar dentro de la zona seleccionada.");
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    try {
+      const { created, lengthM } = await spotsApiClient.createSpotsAlongLine(
+        zoneId,
+        {
+          points: streetPoints.map(([lat, lng]) => ({ lat, lng })),
+          spacingM: SPOT_SPACING_M,
+        },
+      );
+      setStreetPoints([]);
+      await refreshSpots();
+      setSuccess(
+        `Se crearon ${created} plazas a lo largo de ${formatMeters(lengthM)} (cada ${SPOT_SPACING_M} m).`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al generar plazas");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const mapHint =
+    mapTool === "street"
+      ? hasZoneBoundary
+        ? "Modo calle: clic en el mapa para marcar inicio y fin del tramo (podés usar varios puntos). Largo estimado y plazas cada 5 m."
+        : "Definí el polígono de la zona en la pestaña Zonas."
+      : hasZoneBoundary
+        ? "Modo punto: clic izquierdo para agregar plazas; clic derecho para quitar."
+        : "Definí el polígono de la zona en la pestaña Zonas para poder marcar plazas.";
+
   return (
     <div className="sector-map-layout">
       {error && <p className="form-error banner-error">{error}</p>}
+      {success && <p className="form-success banner-success">{success}</p>}
 
       <section className="panel">
         <h2>Plazas</h2>
         <p className="panel-desc">
-          Seleccioná una zona para ver su límite en el mapa. Clic izquierdo para
-          agregar plazas dentro de la zona; clic derecho para quitarlas.
+          Seleccioná una zona y usá el mapa para marcar plazas. Las demás zonas
+          existentes se muestran en gris como referencia.
         </p>
 
         <div className="sector-map-toolbar form-grid">
@@ -245,7 +394,41 @@ export function SpotBlockManager({
               searchPlaceholder="Buscar zona…"
             />
           </label>
+          <label>
+            Herramienta
+            <select
+              value={mapTool}
+              onChange={(e) => setMapTool(e.target.value as MapTool)}
+            >
+              <option value="point">Plaza individual (clic)</option>
+              <option value="street">Tramo de calle (cada 5 m)</option>
+            </select>
+          </label>
         </div>
+
+        {zones.length > 0 && (
+          <div className="existing-zones-panel">
+            <span className="existing-zones-label">
+              Zonas existentes ({zones.length}):
+            </span>
+            <ul className="existing-zones-chips">
+              {zones.map((z) => (
+                <li key={z.id}>
+                  <button
+                    type="button"
+                    className={`zone-chip${z.id === zoneId ? " zone-chip--active" : ""}`}
+                    onClick={() => {
+                      setZoneId(z.id);
+                      setSelectedSpotId(null);
+                    }}
+                  >
+                    <strong>{formatRef(z)}</strong> {z.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {selectedZone && (
           <p className="info-inline">
@@ -260,6 +443,46 @@ export function SpotBlockManager({
           </p>
         )}
 
+        {mapTool === "street" && streetPoints.length > 0 && (
+          <div className="street-tramo-bar">
+            <span>
+              Tramo: <strong>{formatMeters(streetLengthM)}</strong> · ~
+              <strong>{streetSpotEstimate}</strong> plazas (cada {SPOT_SPACING_M}{" "}
+              m)
+            </span>
+            <div className="street-tramo-actions">
+              <button
+                type="button"
+                className="btn-small btn-ghost"
+                onClick={() => setStreetPoints((pts) => pts.slice(0, -1))}
+                disabled={!streetPoints.length || generating}
+              >
+                Deshacer punto
+              </button>
+              <button
+                type="button"
+                className="btn-small btn-ghost"
+                onClick={() => setStreetPoints([])}
+                disabled={!streetPoints.length || generating}
+              >
+                Limpiar tramo
+              </button>
+              <button
+                type="button"
+                className="btn-small btn-primary"
+                onClick={() => void generateSpotsAlongStreet()}
+                disabled={
+                  streetPoints.length < 2 || generating || !hasZoneBoundary
+                }
+              >
+                {generating
+                  ? "Generando…"
+                  : `Generar ${streetSpotEstimate} plazas`}
+              </button>
+            </div>
+          </div>
+        )}
+
         <SpotMap
           spots={zoneSpots}
           mode="manage"
@@ -268,16 +491,17 @@ export function SpotBlockManager({
           referenceImageUrl={referenceImageUrl}
           imageBounds={defaultImageBounds(mapCenter)}
           zonePolygons={zonePolygons}
+          otherZones={otherZones}
+          streetPoints={mapTool === "street" ? streetPoints : []}
+          streetPreviewPoints={
+            mapTool === "street" ? streetPreviewPoints : []
+          }
           selectedSpotId={selectedSpotId}
-          onMapClick={hasZoneBoundary ? addSpotAt : undefined}
-          onMapRightClick={removeSpotAt}
+          onMapClick={hasZoneBoundary ? handleMapClick : undefined}
+          onMapRightClick={mapTool === "point" ? removeSpotAt : undefined}
           onSpotSelect={(s) => setSelectedSpotId(s.id)}
           disabled={!hasZoneBoundary || !zoneId}
-          hint={
-            hasZoneBoundary
-              ? "Clic izquierdo: nueva plaza dentro de la zona. Clic derecho sobre una plaza (o cerca): eliminar."
-              : "Definí el polígono de la zona en la pestaña Zonas para poder marcar plazas."
-          }
+          hint={mapHint}
         />
       </section>
 

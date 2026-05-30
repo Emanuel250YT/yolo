@@ -44,6 +44,9 @@ export interface RegistrationConfig {
   staffRegistrationEnabled: boolean;
   staffRolesRequireActivation: string[];
   message: string;
+  devTools?: boolean;
+  version?: string;
+  commit?: string;
 }
 
 export interface RegisterPayload {

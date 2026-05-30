@@ -48,13 +48,37 @@ function adminCanToggle(actorId: string, target: User): boolean {
   return true;
 }
 
+type UsersApiMode = "admin" | "municipio";
+
+function usersApi(mode: UsersApiMode) {
+  if (mode === "municipio") {
+    return {
+      list: () => api.municipioUsers(),
+      create: (payload: Record<string, unknown>) =>
+        api.municipioCreateUser(payload),
+      update: (id: string, payload: Record<string, unknown>) =>
+        api.municipioUpdateUser(id, payload),
+    };
+  }
+  return {
+    list: () => api.adminUsers(),
+    create: (payload: Record<string, unknown>) =>
+      api.adminCreateUser(payload),
+    update: (id: string, payload: Record<string, unknown>) =>
+      api.adminUpdateUser(id, payload),
+  };
+}
+
 export function UsersManager({
+  apiMode = "admin",
   navTarget,
   onNavHandled,
 }: {
+  apiMode?: UsersApiMode;
   navTarget?: EntityNavTarget | null;
   onNavHandled?: () => void;
 } = {}) {
+  const usersApiClient = useMemo(() => usersApi(apiMode), [apiMode]);
   const { user: actor } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [zones, setZones] = useState<ParkingZone[]>([]);
@@ -80,7 +104,7 @@ export function UsersManager({
     setError(null);
     try {
       const [u, z] = await Promise.all([
-        api.adminUsers(),
+        usersApiClient.list(),
         api.parkingZones(),
       ]);
       setUsers(u.users);
@@ -89,7 +113,7 @@ export function UsersManager({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar");
     }
-  }, []);
+  }, [usersApiClient]);
 
   useEffect(() => {
     load();
@@ -184,7 +208,7 @@ export function UsersManager({
           payload.legajo = legajo;
           payload.parkingZoneId = parkingZoneId;
         }
-        await api.adminCreateUser(payload);
+        await usersApiClient.create(payload);
         resetForm();
         await load();
       } catch (err) {
@@ -197,7 +221,7 @@ export function UsersManager({
     if (!actor || !adminCanToggle(actor.id, u) || togglingId) return;
     await runToggle(async () => {
       try {
-        await api.adminUpdateUser(u.id, { active: !u.active });
+        await usersApiClient.update(u.id, { active: !u.active });
         await load();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error");
@@ -209,7 +233,7 @@ export function UsersManager({
     if (!editing) return;
     await runSaveZone(async () => {
       try {
-        await api.adminUpdateUser(editing.id, {
+        await usersApiClient.update(editing.id, {
           parkingZoneId: editZoneId,
         });
         setEditing(null);
@@ -250,7 +274,7 @@ export function UsersManager({
                       >
                         <input
                           type="radio"
-                          name="admin-role"
+                          name={`${apiMode}-role`}
                           value={opt.id}
                           checked={role === opt.id}
                           onChange={() => {

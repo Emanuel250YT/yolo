@@ -110,6 +110,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  municipioUpdateUser: (id: string, payload: Record<string, unknown>) =>
+    request<{ user: User }>(`/municipio/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
   municipioActivateUser: (id: string) =>
     request<{ user: User; message: string }>(
       `/municipio/users/${id}/activate`,
@@ -147,6 +152,37 @@ export const api = {
   municipioParkingZoneDeleteCheck: (id: string) =>
     request<{ blockers: string[]; canSafeDelete: boolean }>(
       `/municipio/parking-zones/${id}/delete-check`,
+    ),
+  municipioSpotsLive: () =>
+    request<{ spots: Spot[]; refreshedAt: string }>("/municipio/spots/live"),
+  municipioCreateSpotInZone: (
+    zoneId: string,
+    payload: { lat: number; lng: number; label?: string },
+  ) =>
+    request<{ spot: Spot }>(`/municipio/parking-zones/${zoneId}/spots`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  municipioCreateSpotsAlongLine: (
+    zoneId: string,
+    payload: {
+      points: { lat: number; lng: number }[];
+      spacingM?: number;
+    },
+  ) =>
+    request<{
+      spots: Spot[];
+      created: number;
+      lengthM: number;
+      spacingM: number;
+    }>(`/municipio/parking-zones/${zoneId}/spots/along-line`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  municipioDeleteSpot: (id: string, force = false) =>
+    request<{ message: string }>(
+      `/municipio/spots/${id}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
     ),
 
   tariffs: () => request<TariffsResponse>("/tariffs"),
@@ -234,6 +270,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  adminCreateSpotsAlongLine: (
+    zoneId: string,
+    payload: {
+      points: { lat: number; lng: number }[];
+      spacingM?: number;
+    },
+  ) =>
+    request<{
+      spots: Spot[];
+      created: number;
+      lengthM: number;
+      spacingM: number;
+    }>(`/admin/parking-zones/${zoneId}/spots/along-line`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminCleanDatabase: () =>
+    request<{ message: string; result: Record<string, number> }>(
+      "/admin/database/clean",
+      {
+        method: "POST",
+        body: JSON.stringify({ confirm: "LIMPIAR" }),
+      },
+    ),
   adminCreateSpotAtPoint: (
     blockId: string,
     payload: { lat: number; lng: number; label?: string },

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { AppFooter } from "./AppFooter";
+import { useDevTools } from "../dev/DevToolsContext";
 import { BrandLogo } from "./BrandLogo";
 import type { UserRole } from "../types";
 
@@ -90,6 +90,7 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const { user, logout } = useAuth();
+  const { appMeta, ready: metaReady } = useDevTools();
   const [menuOpen, setMenuOpen] = useState(false);
 
   const activeNav = nav.find((item) => item.id === tab);
@@ -104,7 +105,9 @@ export function AppShell({
     <div className="shell">
       <header className="mobile-top-bar">
         <div className="mobile-top-brand">
-          <BrandLogo variant="icon" size="xs" className="brand-icon" />
+          <div className="brand-logo-wrap brand-logo-wrap--sm">
+            <BrandLogo variant="icon" size="xs" alt="SEM" />
+          </div>
           <div className="mobile-top-titles">
             <strong>{headerTitle}</strong>
             <span>{ROLE_LABELS[user!.role]}</span>
@@ -131,7 +134,9 @@ export function AppShell({
 
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
         <div className="brand">
-          <BrandLogo variant="icon" size="xs" className="brand-icon" />
+          <div className="brand-logo-wrap brand-logo-wrap--sidebar">
+            <BrandLogo variant="icon" size="xs" alt="SEM" />
+          </div>
           <div>
             <strong>SEM</strong>
             <span>
@@ -140,29 +145,36 @@ export function AppShell({
           </div>
         </div>
 
-        <div className="user-chip">
-          <span className="user-name">{user!.name}</span>
-          <span className="user-email">{user!.email}</span>
-          {user!.legajo && (
-            <span className="user-meta">Legajo {user!.legajo}</span>
-          )}
+        <div className="sidebar-body">
+          <div className="user-chip">
+            <span className="user-name">{user!.name}</span>
+            <span className="user-email">{user!.email}</span>
+            {user!.legajo && (
+              <span className="user-meta">Legajo {user!.legajo}</span>
+            )}
+          </div>
+
+          <nav className="sidebar-nav">
+            {nav.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={tab === item.id ? "nav-item active" : "nav-item"}
+                onClick={() => goTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        <nav>
-          {nav.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tab === item.id ? "nav-item active" : "nav-item"}
-              onClick={() => goTab(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-
         <div className="sidebar-foot">
-          <AppFooter dark />
+          {metaReady && (
+            <p className="sidebar-version" title="Versión de la aplicación">
+              v{appMeta.version}
+              {appMeta.commit ? ` · ${appMeta.commit}` : ""}
+            </p>
+          )}
           <button type="button" className="btn-logout" onClick={logout}>
             Cerrar sesión
           </button>
@@ -177,7 +189,6 @@ export function AppShell({
           </div>
         </header>
         {children}
-        <AppFooter className="app-footer--desktop" />
       </main>
 
       {mobileDock && (

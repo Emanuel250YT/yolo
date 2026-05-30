@@ -312,8 +312,28 @@ export function ParkingZoneManager({
               referenceImageUrl={imageSrc}
               editable
               height={480}
-              hint="Clic en el mapa para marcar vértices del polígono. Usá «Cerrar polígono» cuando termines."
+              hint="Clic en el mapa para marcar vértices del polígono. Las zonas existentes aparecen en gris. Usá «Cerrar polígono» cuando termines."
             />
+
+            {otherZones.length > 0 && (
+              <div className="existing-zones-panel">
+                <span className="existing-zones-label">
+                  Zonas ya registradas ({otherZones.length}):
+                </span>
+                <ul className="existing-zones-chips">
+                  {otherZones.map((z) => (
+                    <li key={z.id}>
+                      <span className="zone-chip zone-chip--readonly">
+                        <strong>{formatRef(z)}</strong> {z.name}
+                        {z.polygons.some((p) => p.points.length >= 3)
+                          ? ""
+                          : " · sin mapa"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <label>
               Imagen de referencia (opcional)

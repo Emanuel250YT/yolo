@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { DataTable, RefCell } from "../components/DataTable";
 import { DashboardSummary } from "../components/DashboardSummary";
+import { DatabaseCleanPanel } from "../components/DatabaseCleanPanel";
 import { ParkingZoneManager } from "../components/ParkingZoneManager";
 import { SpotBlockManager } from "../components/SpotBlockManager";
 import { PermisionarioPanel } from "../components/PermisionarioPanel";
@@ -79,7 +80,10 @@ export function AdminDashboard() {
       {error && <p className="form-error banner-error">{error}</p>}
 
       {tab === "resumen" && (
-        <DashboardSummary fetchStats={fetchDashboard} />
+        <>
+          <DashboardSummary fetchStats={fetchDashboard} />
+          <DatabaseCleanPanel />
+        </>
       )}
 
       {OPS_TABS.has(tab) && (

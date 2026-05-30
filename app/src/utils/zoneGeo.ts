@@ -108,3 +108,58 @@ export function heatColor(ratio: number) {
 export function heatFillOpacity(ratio: number) {
   return 0.35 + ratio * 0.4;
 }
+
+function interpolatePoint(
+  a: [number, number],
+  b: [number, number],
+  fraction: number,
+): [number, number] {
+  return [
+    a[0] + (b[0] - a[0]) * fraction,
+    a[1] + (b[1] - a[1]) * fraction,
+  ];
+}
+
+export function polylineLengthMeters(points: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += distanceMeters(points[i - 1], points[i]);
+  }
+  return total;
+}
+
+/** Posiciones cada `spacingM` metros a lo largo de la polilínea (incluye inicio). */
+export function pointsAlongPolyline(
+  points: [number, number][],
+  spacingM: number,
+): [number, number][] {
+  if (points.length < 2 || spacingM <= 0) {
+    return points.length ? [points[0]] : [];
+  }
+
+  const total = polylineLengthMeters(points);
+  if (total <= 0) return [points[0]];
+
+  const result: [number, number][] = [];
+  let distAlong = 0;
+  let nextMark = 0;
+  let segStart = 0;
+
+  while (segStart < points.length - 1) {
+    const a = points[segStart];
+    const b = points[segStart + 1];
+    const segLen = distanceMeters(a, b);
+
+    while (nextMark <= distAlong + segLen && nextMark <= total + 0.01) {
+      const t = segLen > 0 ? (nextMark - distAlong) / segLen : 0;
+      result.push(interpolatePoint(a, b, Math.max(0, Math.min(1, t))));
+      nextMark += spacingM;
+    }
+
+    distAlong += segLen;
+    segStart++;
+  }
+
+  if (!result.length) result.push(points[0]);
+  return result;
+}

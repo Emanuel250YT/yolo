@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Spot } from "../types";
@@ -21,6 +21,12 @@ export interface BlockMapMarker {
   selected?: boolean;
 }
 
+export interface OtherZoneOverlay {
+  name: string;
+  code?: string;
+  polygons: [number, number][][];
+}
+
 interface SpotMapProps {
   spots: Spot[];
   mode?: SpotMapMode;
@@ -30,6 +36,9 @@ interface SpotMapProps {
   referenceImageUrl?: string | null;
   imageBounds?: [[number, number], [number, number]];
   zonePolygons?: [number, number][][];
+  otherZones?: OtherZoneOverlay[];
+  streetPoints?: [number, number][];
+  streetPreviewPoints?: [number, number][];
   blockMarkers?: BlockMapMarker[];
   streetRadiusM?: number;
   pendingMarker?: { lat: number; lng: number } | null;
@@ -40,6 +49,8 @@ interface SpotMapProps {
   onSpotToggle?: (spot: Spot) => void;
   hint?: string;
   disabled?: boolean;
+  allowFullscreen?: boolean;
+  toolbar?: React.ReactNode;
 }
 
 function spotIcon(spot: Spot, selected: boolean) {
@@ -75,6 +86,9 @@ export function SpotMap({
   referenceImageUrl,
   imageBounds,
   zonePolygons = [],
+  otherZones = [],
+  streetPoints = [],
+  streetPreviewPoints = [],
   blockMarkers = [],
   streetRadiusM = 120,
   pendingMarker,
@@ -85,11 +99,16 @@ export function SpotMap({
   onSpotToggle,
   hint,
   disabled,
+  allowFullscreen = true,
+  toolbar,
 }: SpotMapProps) {
+  const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
   const zoneLayerRef = useRef<L.LayerGroup | null>(null);
+  const otherZoneLayerRef = useRef<L.LayerGroup | null>(null);
+  const streetLayerRef = useRef<L.LayerGroup | null>(null);
   const blockLayerRef = useRef<L.LayerGroup | null>(null);
   const overlayRef = useRef<L.ImageOverlay | null>(null);
   const clickHandlerRef = useRef<((e: L.LeafletMouseEvent) => void) | null>(
@@ -130,6 +149,8 @@ export function SpotMap({
     }).addTo(map);
 
     zoneLayerRef.current = L.layerGroup().addTo(map);
+    otherZoneLayerRef.current = L.layerGroup().addTo(map);
+    streetLayerRef.current = L.layerGroup().addTo(map);
     blockLayerRef.current = L.layerGroup().addTo(map);
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
@@ -139,10 +160,86 @@ export function SpotMap({
       mapRef.current = null;
       markersRef.current = null;
       zoneLayerRef.current = null;
+      otherZoneLayerRef.current = null;
+      streetLayerRef.current = null;
       blockLayerRef.current = null;
       overlayRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("map-fullscreen-active", fullscreen);
+    return () => document.body.classList.remove("map-fullscreen-active");
+  }, [fullscreen]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const group = otherZoneLayerRef.current;
+    if (!map || !group) return;
+
+    group.clearLayers();
+    for (const z of otherZones) {
+      for (const polygon of z.polygons) {
+        if (polygon.length < 3) continue;
+        const latLngs = polygon.map(([lat, lng]) => L.latLng(lat, lng));
+        L.polygon(latLngs, {
+          color: "#94a3b8",
+          weight: 1,
+          fillColor: "#cbd5e1",
+          fillOpacity: 0.15,
+          dashArray: "4 4",
+          interactive: false,
+        })
+          .bindPopup(`<strong>${z.name}</strong>${z.code ? `<br/><code>${z.code}</code>` : ""}`)
+          .addTo(group);
+      }
+    }
+  }, [otherZones]);
+
+  useEffect(() => {
+    const group = streetLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+
+    if (streetPoints.length >= 2) {
+      const latLngs = streetPoints.map(([lat, lng]) => L.latLng(lat, lng));
+      L.polyline(latLngs, {
+        color: "#dc2626",
+        weight: 4,
+        opacity: 0.9,
+      }).addTo(group);
+    } else if (streetPoints.length === 1) {
+      const [lat, lng] = streetPoints[0];
+      L.circleMarker([lat, lng], {
+        radius: 6,
+        color: "#dc2626",
+        fillColor: "#fff",
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(group);
+    }
+
+    for (const [lat, lng] of streetPoints) {
+      L.circleMarker([lat, lng], {
+        radius: 4,
+        color: "#dc2626",
+        fillColor: "#fff",
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(group);
+    }
+
+    for (const [lat, lng] of streetPreviewPoints) {
+      L.circleMarker([lat, lng], {
+        radius: 7,
+        color: "#16a34a",
+        fillColor: "#86efac",
+        fillOpacity: 0.85,
+        weight: 2,
+        dashArray: "2 2",
+      }).addTo(group);
+    }
+  }, [streetPoints, streetPreviewPoints]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -335,23 +432,57 @@ export function SpotMap({
     if (!map) return;
     const t = window.setTimeout(() => map.invalidateSize(), 120);
     return () => window.clearTimeout(t);
-  }, [height]);
+  }, [height, fullscreen]);
+
+  const mapHeight = fullscreen ? "calc(100vh - 8rem)" : height;
 
   return (
-    <div className="spot-map-wrap">
+    <div
+      className={`spot-map-wrap${fullscreen ? " map-fullscreen" : ""}`}
+    >
+      <div className="spot-map-toolbar">
+        {toolbar}
+        {allowFullscreen && (
+          <button
+            type="button"
+            className="btn-small map-fullscreen-btn"
+            onClick={() => setFullscreen((v) => !v)}
+          >
+            {fullscreen ? "Salir pantalla completa" : "Pantalla completa"}
+          </button>
+        )}
+      </div>
       {hint && <p className="spot-map-hint">{hint}</p>}
       <div
         ref={containerRef}
         className="spot-map zones-map"
-        style={{ height }}
+        style={{ height: mapHeight }}
         role="application"
         aria-label="Mapa de plazas de estacionamiento"
       />
       <div className="zones-map-legend spot-map-legend">
+        {otherZones.length > 0 && (
+          <span className="legend-item">
+            <i style={{ background: "#94a3b8", opacity: 0.6 }} />
+            Otras zonas
+          </span>
+        )}
         {zonePolygons.length > 0 && (
           <span className="legend-item">
             <i style={{ background: "#015cb4", opacity: 0.5 }} />
-            Límite de zona
+            Zona activa
+          </span>
+        )}
+        {streetPoints.length > 0 && (
+          <span className="legend-item">
+            <i style={{ background: "#dc2626" }} />
+            Tramo calle
+          </span>
+        )}
+        {streetPreviewPoints.length > 0 && (
+          <span className="legend-item">
+            <i style={{ background: "#16a34a" }} />
+            Vista previa plazas
           </span>
         )}
         <span className="legend-title">Plazas</span>
@@ -369,7 +500,7 @@ export function SpotMap({
         )}
         {mode === "manage" && (
           <span className="legend-item map-mode-hint">
-            Clic izquierdo: agregar plaza · Clic derecho: quitar plaza
+            Clic izquierdo: agregar · Clic derecho: quitar
           </span>
         )}
       </div>

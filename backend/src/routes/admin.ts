@@ -27,6 +27,7 @@ import {
 import {
   createSpotAtPoint,
   createSpotAtZonePoint,
+  createSpotsAlongLine,
   getSpot,
   listSpots,
   listSpotsLive,
@@ -41,6 +42,8 @@ import {
   setPassword,
   updateUser,
 } from "../store/users.js";
+import { cleanDatabase } from "../store/dbClean.js";
+import { isDevToolsEnabled } from "../config/devTools.js";
 
 function asJson(value: unknown): Prisma.InputJsonValue | undefined {
   if (value == null) return undefined;
@@ -345,6 +348,50 @@ router.post("/parking-zones/:id/spots", async (req, res) => {
   }
 });
 
+router.post("/parking-zones/:id/spots/along-line", async (req, res) => {
+  try {
+    const rawPoints = req.body?.points;
+    if (!Array.isArray(rawPoints) || rawPoints.length < 2) {
+      return res
+        .status(400)
+        .json({ error: "points debe ser un array con al menos 2 vértices." });
+    }
+    const points = rawPoints.map((p: { lat?: unknown; lng?: unknown }) => ({
+      lat: Number(p.lat),
+      lng: Number(p.lng),
+    }));
+    if (points.some((p) => Number.isNaN(p.lat) || Number.isNaN(p.lng))) {
+      return res.status(400).json({ error: "Cada punto requiere lat y lng numéricos." });
+    }
+    const spacingM = Number(req.body?.spacingM ?? 5);
+    if (Number.isNaN(spacingM) || spacingM <= 0) {
+      return res.status(400).json({ error: "spacingM debe ser un número positivo." });
+    }
+    const { spots, lengthM } = await createSpotsAlongLine({
+      zoneId: req.params.id,
+      points,
+      spacingM,
+    });
+    const actor = req.user!;
+    for (const spot of spots) {
+      await logHistory({
+        userId: actor.id,
+        userName: actor.name,
+        action: "create",
+        entityType: "spot",
+        entityId: spot.id,
+        entityRef: spot.ref,
+        entityLabel: spot.label,
+        after: asJson(spot),
+      });
+    }
+    res.status(201).json({ spots, created: spots.length, lengthM, spacingM });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
+});
+
 router.get("/blocks", async (req, res) => {
   const zoneId =
     typeof req.query.zoneId === "string" ? req.query.zoneId : undefined;
@@ -460,6 +507,31 @@ router.get("/spots/live", async (_req, res) => {
     spots: await listSpotsLive(),
     refreshedAt: new Date().toISOString(),
   });
+});
+
+router.post("/database/clean", async (req, res) => {
+  if (!isDevToolsEnabled()) {
+    return res.status(403).json({
+      error: "Limpieza de datos deshabilitada (ENABLE_DEV_TOOLS=false en el servidor).",
+    });
+  }
+  if (req.body?.confirm !== "LIMPIAR") {
+    return res
+      .status(400)
+      .json({ error: 'Enviá { "confirm": "LIMPIAR" } para confirmar.' });
+  }
+  try {
+    const result = await cleanDatabase();
+    res.json({
+      message: result.municipioPreserved
+        ? "Base vaciada. La cuenta Municipalidad se conservó y se sincronizó con .env."
+        : "Base vaciada. Ejecutá npm run seed o definí MUNICIPIO_EMAIL en .env.",
+      result,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error";
+    res.status(400).json({ error: message });
+  }
 });
 
 export default router;

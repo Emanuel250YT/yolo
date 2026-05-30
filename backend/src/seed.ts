@@ -1,6 +1,7 @@
 import { backfillMissingRefs } from "./lib/shortRef.js";
 import { prisma } from "./lib/prisma.js";
-import { MUNICIPIO_EMAIL, MUNICIPIO_PASSWORD } from "./config/auth.js";
+import { isDevToolsEnabled } from "./config/devTools.js";
+import { ensureMunicipioAccount } from "./services/municipioAccount.js";
 import {
   linkUsersToParkingZones,
   migrateZonePolygonsIfEmpty,
@@ -29,12 +30,6 @@ function parseDevSeedAccounts(): DevSeedAccount[] {
 }
 
 const DEFAULT_DEV_ACCOUNTS: DevSeedAccount[] = [
-  {
-    email: "municipio@ejemplo.com",
-    password: "tu-clave",
-    name: "Municipalidad Demo",
-    role: "municipio",
-  },
   {
     email: "admin@ejemplo.com",
     password: "tu-clave",
@@ -67,7 +62,7 @@ const DEV_CITIZEN = {
 };
 
 async function seedDevAccounts() {
-  if (process.env.ENABLE_DEV_TOOLS !== "true") return;
+  if (!isDevToolsEnabled()) return;
 
   const accounts =
     parseDevSeedAccounts().length > 0
@@ -80,6 +75,8 @@ async function seedDevAccounts() {
   });
 
   for (const acc of accounts) {
+    if (acc.role === "municipio") continue;
+
     if (await findByEmail(acc.email)) continue;
 
     if (acc.role === "permisionario" && !firstZone) {
@@ -124,32 +121,15 @@ export async function runSeed() {
   await seedSpotsIfEmpty();
   await backfillMissingRefs();
 
-  if (!MUNICIPIO_EMAIL || !MUNICIPIO_PASSWORD) {
-    console.warn(
-      "[SEM] Definí MUNICIPIO_EMAIL y MUNICIPIO_PASSWORD en .env para la cuenta Municipalidad.",
+  const municipio = await ensureMunicipioAccount();
+  if (municipio.ok) {
+    console.log(
+      municipio.created
+        ? `Cuenta Municipio creada: ${municipio.email}`
+        : `Cuenta Municipio lista: ${municipio.email}`,
     );
-  } else if (!(await findByEmail(MUNICIPIO_EMAIL))) {
-    await createUser({
-      email: MUNICIPIO_EMAIL,
-      password: MUNICIPIO_PASSWORD,
-      name: "Municipalidad de Salta",
-      role: "municipio",
-      active: true,
-      activationPending: false,
-      citizen: {
-        dni: "MUNICIPIO-001",
-        birthDate: "2000-01-01",
-        sex: "X",
-        firstName: "Municipalidad",
-        lastName: "de Salta",
-        phone: "3874000000",
-        address: "Salta",
-        city: "Salta",
-        province: "Salta",
-        nationality: "Argentina",
-      },
-    });
-    console.log(`Cuenta Municipio lista: ${MUNICIPIO_EMAIL}`);
+  } else if (municipio.error) {
+    console.warn(`[SEM] ${municipio.error}`);
   }
 
   await seedDevAccounts();
