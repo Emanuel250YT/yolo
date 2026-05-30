@@ -6,7 +6,7 @@ import { api, unwrapPaginated } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { AppShell } from "../components/AppShell";
-import { DataTable, TableActions } from "../components/DataTable";
+import { DataTable, RefCell, TableActions } from "../components/DataTable";
 import { ConductorPayByCodeForm } from "../components/PaymentOrderDisplay";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { ParkingAlertsBanner } from "../components/ParkingAlertsBanner";
@@ -16,6 +16,7 @@ import { useGeolocation } from "../hooks/useGeolocation";
 import { useSubmitLock } from "../hooks/useSubmitLock";
 import { spotLiveStatus } from "../utils/geo";
 import { zoneLabel } from "../utils/zoneDefaults";
+import { formatRef } from "../utils/formatRef";
 import {
   buildReservationStartSlots,
   defaultStartSlot,
@@ -25,6 +26,8 @@ import type {
   ConductorVehicle,
   ParkingAlert,
   ParkingZone,
+  Permit,
+  PricingBreakdown,
   QuoteResult,
   Reservation,
   Spot,
@@ -34,12 +37,30 @@ import type {
 const NAV = [
   { id: "inicio", label: "Inicio" },
   { id: "vehiculos", label: "Vehículos" },
+  { id: "permisos", label: "Permisos" },
   { id: "lugares", label: "Lugares" },
   { id: "reservar", label: "Reservar" },
   { id: "mis-reservas", label: "Reservas" },
   { id: "pagar", label: "Pagar" },
   { id: "cuenta", label: "Mi cuenta" },
 ];
+
+const PERMIT_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  grace: "En tolerancia",
+  completed: "Completado",
+  cancelled: "Cancelado",
+};
+
+function formatGraceRemaining(graceUntil: string | null | undefined) {
+  if (!graceUntil) return null;
+  const ms = new Date(graceUntil).getTime() - getDevNowMs();
+  if (ms <= 0) return "Venció la tolerancia";
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")} restantes`;
+}
 
 function formatDurationHours(minutes: number) {
   const h = minutes / 60;
@@ -123,6 +144,25 @@ export function ConductorDashboard() {
     enabled: tab === "mis-reservas",
   });
 
+  const {
+    items: permits,
+    serverPagination: permitsPagination,
+    refresh: refreshPermits,
+  } = usePaginatedTable<Permit>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "permits",
+        await api.conductorPermits({
+          page,
+          pageSize,
+          q,
+          status: filters.status,
+        }),
+      ),
+    enabled: tab === "permisos",
+    resetKey: refreshKey,
+  });
+
   const [vehicleForm, setVehicleForm] = useState({
     plate: "",
     vehicleType: "auto" as "auto" | "motorcycle",
@@ -137,6 +177,7 @@ export function ConductorDashboard() {
   });
 
   const { busy: reserving, run: runReserve } = useSubmitLock();
+  const { busy: payingPermit, run: runPayPermit } = useSubmitLock();
   const { busy: addingVehicle, run: runAddVehicle } = useSubmitLock();
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -376,6 +417,24 @@ export function ConductorDashboard() {
     });
   }
 
+  async function payPermitPending(permit: Permit) {
+    await runPayPermit(async () => {
+      setError(null);
+      try {
+        const { payment } = await api.conductorPermitPayment(permit.id);
+        if (!payment?.orderId) {
+          setError("No hay un pago pendiente para este permiso.");
+          return;
+        }
+        navigate(
+          `/payment-brick?order-id=${encodeURIComponent(payment.orderId)}`,
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error al obtener el pago");
+      }
+    });
+  }
+
   async function payWithOrderCode(orderId: string) {
     await runPayCode(async () => {
       setPayCodeError(null);
@@ -416,6 +475,7 @@ export function ConductorDashboard() {
           }));
         }
         setTab("vehiculos");
+        void refreshPermits();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al registrar");
       }
@@ -440,6 +500,7 @@ export function ConductorDashboard() {
           vehicleType: next?.vehicleType ?? "auto",
         }));
       }
+      void refreshPermits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -479,7 +540,7 @@ export function ConductorDashboard() {
     >
       {error && <p className="form-error banner-error">{error}</p>}
 
-      {(tab === "inicio" || tab === "vehiculos" || tab === "reservar") && (
+      {(tab === "inicio" || tab === "vehiculos" || tab === "reservar" || tab === "permisos") && (
         <ParkingAlertsBanner alerts={alerts} onRenew={goRenew} />
       )}
 
@@ -645,6 +706,147 @@ export function ConductorDashboard() {
             </form>
           </section>
         </div>
+      )}
+
+      {tab === "permisos" && (
+        <section className="panel">
+          <h2>Mis permisos</h2>
+          <p className="panel-desc">
+            Permisos de estacionamiento asociados a las patentes de tus
+            vehículos registrados (padron o manual).
+          </p>
+          {!hasVehicles && (
+            <p className="form-error">
+              Registrá vehículos en la pestaña Vehículos para ver permisos
+              vinculados a tus patentes.
+            </p>
+          )}
+          <DataTable
+            rows={permits}
+            rowKey={(p) => p.id}
+            searchPlaceholder="Buscar por ID, patente, zona…"
+            emptyMessage={
+              hasVehicles
+                ? "No hay permisos para tus vehículos."
+                : "Agregá vehículos para ver permisos."
+            }
+            serverPagination={permitsPagination}
+            filters={[
+              {
+                key: "status",
+                label: "Estado",
+                options: [
+                  { value: "active", label: "Activo" },
+                  { value: "grace", label: "En tolerancia" },
+                  { value: "completed", label: "Completado" },
+                  { value: "cancelled", label: "Cancelado" },
+                ],
+              },
+            ]}
+            columns={[
+              {
+                key: "ref",
+                header: "ID",
+                searchValues: (p) => [p.ref, p.id, p.plate],
+                render: (p) => (
+                  <RefCell refId={formatRef(p)} entityKind="permit" />
+                ),
+              },
+              {
+                key: "plate",
+                header: "Patente",
+                searchValues: (p) => [p.plate],
+                render: (p) => <strong>{p.plate}</strong>,
+              },
+              {
+                key: "status",
+                header: "Estado",
+                filterKey: "status",
+                searchValues: (p) => [p.status],
+                render: (p) => (
+                  <span
+                    className={`chip${p.status === "grace" ? " chip-warn" : ""}`}
+                  >
+                    {PERMIT_STATUS_LABELS[p.status] ?? p.status}
+                  </span>
+                ),
+              },
+              {
+                key: "zone",
+                header: "Zona",
+                searchValues: (p) => [p.zone, zoneLabel(p.zone, zones)],
+                render: (p) => zoneLabel(p.zone, zones),
+              },
+              {
+                key: "spot",
+                header: "Plaza",
+                searchValues: (p) => [p.spotLabel],
+                render: (p) => p.spotLabel ?? "—",
+              },
+              {
+                key: "payment",
+                header: "Pago",
+                render: (p) =>
+                  p.paymentMethod === "mercadopago"
+                    ? p.paidAt
+                      ? "MP ✓"
+                      : "MP pend."
+                    : p.paymentMethod === "cash"
+                      ? "Efectivo"
+                      : "—",
+              },
+              {
+                key: "net",
+                header: "Importe",
+                render: (p) =>
+                  p.pricing
+                    ? `$${(p.pricing as PricingBreakdown).net.toLocaleString("es-AR")}`
+                    : "—",
+              },
+              {
+                key: "grace",
+                header: "Tolerancia",
+                render: (p) =>
+                  p.status === "grace" && p.graceUntil
+                    ? formatGraceRemaining(p.graceUntil)
+                    : "—",
+              },
+              {
+                key: "end",
+                header: "Vence",
+                searchValues: (p) => [p.endAt],
+                render: (p) =>
+                  p.endAt
+                    ? new Date(p.endAt).toLocaleString("es-AR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—",
+              },
+              {
+                key: "actions",
+                header: "Acciones",
+                render: (p) =>
+                  p.paymentMethod === "mercadopago" &&
+                  !p.paidAt &&
+                  (p.status === "active" || p.status === "grace") ? (
+                    <TableActions>
+                      <button
+                        type="button"
+                        className="btn-small btn-mp"
+                        disabled={payingPermit}
+                        onClick={() => void payPermitPending(p)}
+                      >
+                        Pagar
+                      </button>
+                    </TableActions>
+                  ) : null,
+              },
+            ]}
+          />
+        </section>
       )}
 
       {tab === "lugares" && (

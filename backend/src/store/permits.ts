@@ -87,12 +87,14 @@ function permitSearchWhere(q?: string): Prisma.PermitWhereInput | undefined {
 
 export async function listPermits(opts: {
   permisionarioId?: string;
+  plates?: string[];
   status?: PermitStatus;
   pagination?: PaginationParams;
 } = {}): Promise<PaginatedResult<ReturnType<typeof mapPermit>> | ReturnType<typeof mapPermit>[]> {
   await expireStalePermits();
   const where: Prisma.PermitWhereInput = {
     ...(opts.permisionarioId ? { permisionarioId: opts.permisionarioId } : {}),
+    ...(opts.plates?.length ? { plate: { in: opts.plates } } : {}),
     ...(opts.status ? { status: opts.status } : {}),
     ...(opts.pagination?.q ? permitSearchWhere(opts.pagination.q) : {}),
   };

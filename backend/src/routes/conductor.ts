@@ -1,10 +1,12 @@
 import { Router } from "express";
+import type { PermitStatus } from "../prisma/client.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
 import { SPOT_HOLD_MS, SPOT_HOLD_MP_MS } from "../config/reservations.js";
 import {
   addConductorVehicle,
   deleteConductorVehicle,
+  listConductorPlates,
   listConductorVehicles,
   listParkingAlerts,
 } from "../store/conductorVehicles.js";
@@ -23,6 +25,8 @@ import {
   getSpotHold,
 } from "../store/spotHolds.js";
 import { listSpotsLive } from "../store/spots.js";
+import { getPermit, listPermits } from "../store/permits.js";
+import { getPendingPaymentOrderForPermit } from "../store/paymentOrders.js";
 
 const router = Router();
 
@@ -187,6 +191,64 @@ router.get("/parking-alerts", async (req, res) => {
       ? req.query.userId
       : req.user!.id;
   res.json({ alerts: await listParkingAlerts(userId) });
+});
+
+router.get("/permits", async (req, res) => {
+  if (req.user!.role === "conductor") {
+    await syncGovVehicles(req.user!.id);
+  }
+  const userId =
+    req.user!.role === "admin" && typeof req.query.userId === "string"
+      ? req.query.userId
+      : req.user!.id;
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const statusRaw =
+    typeof req.query.status === "string" ? req.query.status : undefined;
+  const status = statusRaw as PermitStatus | undefined;
+  const plates = await listConductorPlates(userId);
+  if (!plates.length) {
+    return res.json({
+      permits: [],
+      total: 0,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      hasMore: false,
+      totalPages: 0,
+    });
+  }
+  const result = await listPermits({
+    plates,
+    status,
+    pagination,
+  });
+  if (Array.isArray(result)) {
+    return res.json({
+      permits: result,
+      total: result.length,
+      page: 1,
+      pageSize: result.length,
+      hasMore: false,
+      totalPages: 1,
+    });
+  }
+  res.json({ permits: result.items, ...paginationMeta(result) });
+});
+
+router.get("/permits/:id/payment", async (req, res) => {
+  const permit = await getPermit(req.params.id);
+  if (!permit) {
+    return res.status(404).json({ error: "Permiso no encontrado." });
+  }
+  const userId =
+    req.user!.role === "admin" && typeof req.query.userId === "string"
+      ? req.query.userId
+      : req.user!.id;
+  const plates = await listConductorPlates(userId);
+  if (!plates.includes(permit.plate)) {
+    return res.status(403).json({ error: "No autorizado." });
+  }
+  const payment = await getPendingPaymentOrderForPermit(permit.id);
+  res.json({ payment });
 });
 
 router.get("/reservations", async (req, res) => {

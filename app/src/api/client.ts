@@ -628,6 +628,14 @@ export const api = {
     request<{ reservation: Reservation }>(`/conductor/reservations/${id}`, {
       method: "DELETE",
     }),
+  conductorPermits: (query?: ListQuery) =>
+    request<PaginatedList<"permits", Permit>>(
+      `/conductor/permits${buildQuery(query)}`,
+    ),
+  conductorPermitPayment: (id: string) =>
+    request<{ payment: PaymentOrderInfo | null }>(
+      `/conductor/permits/${id}/payment`,
+    ),
   conductorConfig: () =>
     request<{
       maxAdvanceMinutes: number;
