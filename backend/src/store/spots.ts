@@ -387,46 +387,5 @@ export async function migrateLegacySpotsToBlocks() {
 }
 
 export async function seedSpotsIfEmpty() {
-  const count = await prisma.spot.count();
-  if (count > 0) return;
-
-  const zones = await prisma.parkingZone.findMany();
-  if (!zones.length) return;
-
-  for (const z of zones) {
-    const block = await prisma.parkingBlock.create({
-      data: {
-        ref: await generateUniqueRef("parkingBlock"),
-        zoneId: z.id,
-        code: `${z.code}-c1`,
-        name: `Cuadra ${z.name}`,
-        street: z.description || z.name,
-        lat: -24.7859,
-        lng: -65.4115,
-      },
-    });
-
-    for (let i = 0; i < 12; i++) {
-      const row = Math.floor(i / 4);
-      const col = i % 4;
-      await prisma.spot.create({
-        data: {
-          ref: await generateUniqueRef("spot"),
-          blockId: block.id,
-          parkingZoneId: z.id,
-          region: z.region,
-          zone: z.code,
-          label: `P-${String(i + 1).padStart(2, "0")}`,
-          row,
-          col,
-          address: block.street,
-          lat: block.lat,
-          lng: block.lng,
-          capacity: 1,
-          occupied: Math.random() > 0.65 ? 1 : 0,
-          enabled: true,
-        },
-      });
-    }
-  }
+  /* sin plazas precargadas — se marcan desde el mapa */
 }

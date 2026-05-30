@@ -2,7 +2,8 @@ import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import routes from "./routes/index.js";
-import { runSeed } from "./seed.js";
+import { setupSwagger } from "./swagger.js";
+import { prisma } from "./lib/prisma.js";
 import { maybeExpireRecords } from "./middleware/expireRecords.js";
 
 const app = express();
@@ -10,6 +11,7 @@ const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
+setupSwagger(app);
 app.use("/api", maybeExpireRecords, routes);
 
 app.get("/", (_req, res) => {
@@ -17,22 +19,25 @@ app.get("/", (_req, res) => {
     name: "SEM Backend",
     version: "0.3.0",
     stack: "TypeScript + Express + Prisma + PostgreSQL",
+    docs: "/api/docs",
+    openapi: "/api/openapi.json",
   });
 });
 
 async function main() {
   try {
-    await runSeed();
+    await prisma.$connect();
+    console.log("[SEM] PostgreSQL conectado.");
   } catch (err) {
-    console.error(
+    console.warn(
       "[SEM] No se pudo conectar a PostgreSQL. Revisá DATABASE_URL y ejecutá: npm run db:push",
     );
-    console.error(err);
-    process.exit(1);
+    console.warn(err);
   }
 
   app.listen(PORT, () => {
     console.log(`SEM backend escuchando en http://localhost:${PORT}`);
+    console.log(`Documentación API: http://localhost:${PORT}/api/docs`);
   });
 }
 

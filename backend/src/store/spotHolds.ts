@@ -1,4 +1,4 @@
-import type { VehicleType } from "@prisma/client";
+import type { VehicleType } from "../prisma/client.js";
 import { SPOT_HOLD_MS } from "../config/reservations.js";
 import { calculateAmount } from "../services/pricing.js";
 import { getTariffs } from "./tariffs.js";

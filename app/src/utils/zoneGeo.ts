@@ -10,68 +10,6 @@ export interface ZoneGeo {
   center: [number, number];
 }
 
-/** Polígonos aproximados en Salta — respaldo si la zona no tiene polígono en BD */
-export const ZONE_GEO_FALLBACK: ZoneGeo[] = [
-  {
-    code: "microcentro",
-    name: "Microcentro",
-    center: [-24.7859, -65.4115],
-    polygon: [
-      [-24.7838, -65.4148],
-      [-24.7838, -65.4082],
-      [-24.7882, -65.4082],
-      [-24.7882, -65.4148],
-    ],
-  },
-  {
-    code: "paseo-balcarce",
-    name: "Paseo Balcarce",
-    center: [-24.7895, -65.4088],
-    polygon: [
-      [-24.7882, -65.4105],
-      [-24.7882, -65.407],
-      [-24.7908, -65.407],
-      [-24.7908, -65.4105],
-    ],
-  },
-  {
-    code: "paseo-guemes",
-    name: "Paseo Güemes",
-    center: [-24.7825, -65.4165],
-    polygon: [
-      [-24.7812, -65.4182],
-      [-24.7812, -65.4148],
-      [-24.7838, -65.4148],
-      [-24.7838, -65.4182],
-    ],
-  },
-  {
-    code: "plaza-alvarado",
-    name: "Plaza Alvarado",
-    center: [-24.7912, -65.4142],
-    polygon: [
-      [-24.790, -65.4158],
-      [-24.790, -65.4126],
-      [-24.7924, -65.4126],
-      [-24.7924, -65.4158],
-    ],
-  },
-  {
-    code: "locales-diversión",
-    name: "Locales de diversión",
-    center: [-24.7788, -65.4095],
-    polygon: [
-      [-24.7775, -65.4112],
-      [-24.7775, -65.4078],
-      [-24.7801, -65.4078],
-      [-24.7801, -65.4112],
-    ],
-  },
-];
-
-/** @deprecated use resolveZoneGeoList */
-export const ZONE_GEO = ZONE_GEO_FALLBACK;
-
 export function polygonCenter(polygon: [number, number][]): [number, number] {
   if (!polygon.length) return SALTA_CENTER;
   const lat = polygon.reduce((a, p) => a + p[0], 0) / polygon.length;
@@ -123,7 +61,6 @@ export function distanceMeters(
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
-/** Radio máximo (m) para marcar plazas cerca del centro de una calle */
 export const STREET_SPOT_RADIUS_M = 120;
 
 export function zoneGeoFromParkingZone(
@@ -145,14 +82,10 @@ export function zoneGeoFromParkingZone(
 export function resolveZoneGeoList(
   zones: { code: string; name: string; polygons: { points: [number, number][] }[]; enabled?: boolean }[],
 ): ZoneGeo[] {
-  const fromDb = zones
+  return zones
     .filter((z) => z.enabled !== false)
     .map(zoneGeoFromParkingZone)
     .filter((z): z is ZoneGeo => z != null);
-
-  if (fromDb.length) return fromDb;
-
-  return ZONE_GEO_FALLBACK;
 }
 
 export function zoneOccupancy(spots: Spot[], zoneCode: string) {

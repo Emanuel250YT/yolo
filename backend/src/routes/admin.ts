@@ -1,7 +1,7 @@
 import { Router } from "express";
-import type { UserRole } from "@prisma/client";
+import type { Prisma, UserRole } from "../prisma/client.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { listHistory } from "../store/history.js";
+import { listHistory, logHistory } from "../store/history.js";
 import { listPermits } from "../store/permits.js";
 import { listReservations } from "../store/reservations.js";
 import {
@@ -27,6 +27,7 @@ import {
 import {
   createSpotAtPoint,
   createSpotAtZonePoint,
+  getSpot,
   listSpots,
   listSpotsLive,
   setSpotOccupancy,
@@ -40,6 +41,11 @@ import {
   setPassword,
   updateUser,
 } from "../store/users.js";
+
+function asJson(value: unknown): Prisma.InputJsonValue | undefined {
+  if (value == null) return undefined;
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 const router = Router();
 router.use(authenticate, requireRole("admin"));
@@ -89,8 +95,22 @@ router.post("/users", async (req, res) => {
       role: req.body.role as UserRole,
       legajo: req.body.legajo,
       zone: req.body.zone,
+      parkingZoneId: req.body.parkingZoneId,
       active: req.body.active !== false,
       activationPending: req.body.active === false,
+      citizen: req.body.citizen,
+    });
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "create",
+      entityType: "user",
+      entityId: user.id,
+      entityRef: user.ref,
+      entityLabel: user.name,
+      after: asJson(user),
+      observation: `Usuario ${user.role} creado`,
     });
     res.status(201).json({ user });
   } catch (err) {
@@ -124,6 +144,23 @@ router.patch("/users/:id", async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "Usuario no encontrado." });
     }
+    const action =
+      req.body?.active === true
+        ? "activate"
+        : req.body?.active === false
+          ? "deactivate"
+          : "update";
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action,
+      entityType: "user",
+      entityId: user.id,
+      entityRef: user.ref,
+      entityLabel: user.name,
+      before: asJson({ active: target.active, name: target.name }),
+      after: asJson(user),
+    });
     res.json({ user });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
@@ -200,6 +237,17 @@ router.get("/parking-zones/:id", async (req, res) => {
 router.post("/parking-zones", async (req, res) => {
   try {
     const zone = await createParkingZone(req.body ?? {});
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "create",
+      entityType: "zone",
+      entityId: zone.id,
+      entityRef: zone.ref,
+      entityLabel: zone.name,
+      after: asJson(zone),
+    });
     res.status(201).json({ zone });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
@@ -209,10 +257,23 @@ router.post("/parking-zones", async (req, res) => {
 
 router.patch("/parking-zones/:id", async (req, res) => {
   try {
+    const before = await getParkingZone(req.params.id);
     const zone = await updateParkingZone(req.params.id, req.body ?? {});
     if (!zone) {
       return res.status(404).json({ error: "Zona no encontrada." });
     }
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "update",
+      entityType: "zone",
+      entityId: zone.id,
+      entityRef: zone.ref,
+      entityLabel: zone.name,
+      before: asJson(before),
+      after: asJson(zone),
+    });
     res.json({ zone });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
@@ -230,10 +291,22 @@ router.get("/parking-zones/:id/delete-check", async (req, res) => {
 
 router.delete("/parking-zones/:id", async (req, res) => {
   try {
+    const before = await getParkingZone(req.params.id);
     const ok = await deleteParkingZoneForce(req.params.id);
     if (!ok) {
       return res.status(404).json({ error: "Zona no encontrada." });
     }
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "delete",
+      entityType: "zone",
+      entityId: req.params.id,
+      entityRef: before?.ref,
+      entityLabel: before?.name,
+      before: asJson(before),
+    });
     res.json({ message: "Zona eliminada." });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";
@@ -253,6 +326,17 @@ router.post("/parking-zones/:id/spots", async (req, res) => {
       lat,
       lng,
       label: req.body?.label,
+    });
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "create",
+      entityType: "spot",
+      entityId: spot.id,
+      entityRef: spot.ref,
+      entityLabel: spot.label,
+      after: asJson(spot),
     });
     res.status(201).json({ spot });
   } catch (err) {
@@ -314,6 +398,7 @@ router.post("/blocks/:id/spots", async (req, res) => {
 
 router.delete("/spots/:id", async (req, res) => {
   try {
+    const before = await getSpot(req.params.id);
     const force = req.query.force === "true";
     const ok = force
       ? await deleteSpotForce(req.params.id)
@@ -321,6 +406,17 @@ router.delete("/spots/:id", async (req, res) => {
     if (!ok) {
       return res.status(404).json({ error: "Plaza no encontrada." });
     }
+    const actor = req.user!;
+    await logHistory({
+      userId: actor.id,
+      userName: actor.name,
+      action: "delete",
+      entityType: "spot",
+      entityId: req.params.id,
+      entityRef: before?.ref,
+      entityLabel: before?.label,
+      before: asJson(before),
+    });
     res.json({ message: "Plaza eliminada." });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error";

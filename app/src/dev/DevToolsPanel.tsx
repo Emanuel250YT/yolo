@@ -7,7 +7,7 @@ import type { DevShiftOverride } from "./devConfig";
 export function DevToolsPanel() {
   const { enabled, shiftOverride, setShiftOverride, geoOverride, setGeoOverride } =
     useDevTools();
-  const { user, login, logout } = useAuth();
+  const { user, login } = useAuth();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +20,8 @@ export function DevToolsPanel() {
     setBusy(true);
     setError(null);
     try {
-      logout();
       await login(email, password);
-      window.location.reload();
+      window.location.href = "/";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cambiar cuenta");
     } finally {

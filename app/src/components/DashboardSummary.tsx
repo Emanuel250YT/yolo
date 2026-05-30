@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DashboardStats } from "../types";
-import { RefCell } from "./DataTable";
+import { DataTable, RefCell } from "./DataTable";
 import { formatRef } from "../utils/formatRef";
 
 function fmtMoney(n: number) {
@@ -256,93 +256,142 @@ export function DashboardSummary({
       {stats.zoneOccupancy.length > 0 && (
         <section className="dash-card">
           <h3>Ocupación por zona</h3>
-          <div className="table-wrap">
-            <table className="data-table dash-table">
-              <thead>
-                <tr>
-                  <th>Zona</th>
-                  <th>Total</th>
-                  <th>Ocupadas</th>
-                  <th>Hold</th>
-                  <th>Libres</th>
-                  <th>% Ocup.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.zoneOccupancy.map((z) => (
-                  <tr key={z.zone}>
-                    <td>
-                      <strong>{z.zoneName}</strong>
-                      <span className="meta"> ({z.zone})</span>
-                    </td>
-                    <td>{z.total}</td>
-                    <td>{z.occupied}</td>
-                    <td>{z.held}</td>
-                    <td>{z.available}</td>
-                    <td>
-                      <div className="dash-occ-row">
-                        <span
-                          className="dash-occ-bar"
-                          style={{ width: `${z.occupancyPct}%` }}
-                        />
-                        <span>{z.occupancyPct}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            rows={stats.zoneOccupancy}
+            rowKey={(z) => z.zone}
+            searchPlaceholder="Buscar zona…"
+            emptyMessage="Sin datos de ocupación."
+            columns={[
+              {
+                key: "name",
+                header: "Zona",
+                searchValues: (z) => [z.zoneName, z.zone],
+                render: (z) => (
+                  <>
+                    <strong>{z.zoneName}</strong>
+                    <span className="meta"> ({z.zone})</span>
+                  </>
+                ),
+              },
+              { key: "total", header: "Total", render: (z) => z.total },
+              { key: "occupied", header: "Ocupadas", render: (z) => z.occupied },
+              { key: "held", header: "Hold", render: (z) => z.held },
+              { key: "available", header: "Libres", render: (z) => z.available },
+              {
+                key: "pct",
+                header: "% Ocup.",
+                searchValues: (z) => [z.occupancyPct],
+                render: (z) => (
+                  <div className="dash-occ-row">
+                    <span
+                      className="dash-occ-bar"
+                      style={{ width: `${z.occupancyPct}%` }}
+                    />
+                    <span>{z.occupancyPct}%</span>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </section>
       )}
 
       <div className="dash-grid-2">
         <section className="dash-card">
           <h3>Últimos permisos</h3>
-          {stats.recentPermits.length === 0 ? (
-            <p className="empty">Sin permisos recientes.</p>
-          ) : (
-            <ul className="dash-recent">
-              {stats.recentPermits.map((p) => (
-                <li key={p.id}>
-                  <div>
-                    <RefCell refId={formatRef(p)} />
-                    <strong>{p.plate}</strong>
-                    <span className="meta"> · {p.zone}</span>
-                  </div>
-                  <div className="dash-recent-meta">
-                    <span className="chip">{p.status}</span>
-                    {p.net != null && <span>{fmtMoney(p.net)}</span>}
-                    <time>{fmtDateTime(p.createdAt)}</time>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <DataTable
+            rows={stats.recentPermits}
+            rowKey={(p) => p.id}
+            searchPlaceholder="Buscar permiso…"
+            emptyMessage="Sin permisos recientes."
+            columns={[
+              {
+                key: "ref",
+                header: "ID",
+                searchValues: (p) => [p.ref, p.id, p.plate],
+                render: (p) => <RefCell refId={formatRef(p)} entityKind="permit" />,
+              },
+              { key: "plate", header: "Patente", render: (p) => p.plate },
+              { key: "zone", header: "Zona", render: (p) => p.zone },
+              {
+                key: "status",
+                header: "Estado",
+                filterKey: "status",
+                searchValues: (p) => [p.status],
+                render: (p) => <span className="chip">{p.status}</span>,
+              },
+              {
+                key: "net",
+                header: "Importe",
+                render: (p) => (p.net != null ? fmtMoney(p.net) : "—"),
+              },
+              {
+                key: "when",
+                header: "Fecha",
+                render: (p) => fmtDateTime(p.createdAt),
+              },
+            ]}
+            filters={[
+              {
+                key: "status",
+                label: "Estado",
+                options: [
+                  { value: "active", label: "Activo" },
+                  { value: "completed", label: "Completado" },
+                  { value: "cancelled", label: "Cancelado" },
+                ],
+              },
+            ]}
+          />
         </section>
 
         <section className="dash-card">
           <h3>Últimas reservas</h3>
-          {stats.recentReservations.length === 0 ? (
-            <p className="empty">Sin reservas recientes.</p>
-          ) : (
-            <ul className="dash-recent">
-              {stats.recentReservations.map((r) => (
-                <li key={r.id}>
-                  <div>
-                    <RefCell refId={formatRef(r)} />
-                    <strong>{r.plate}</strong>
-                    <span className="meta"> · {r.spotLabel}</span>
-                  </div>
-                  <div className="dash-recent-meta">
-                    <span className="chip">{r.status}</span>
-                    {r.net != null && <span>{fmtMoney(r.net)}</span>}
-                    <time>{fmtDateTime(r.scheduledStart)}</time>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <DataTable
+            rows={stats.recentReservations}
+            rowKey={(r) => r.id}
+            searchPlaceholder="Buscar reserva…"
+            emptyMessage="Sin reservas recientes."
+            columns={[
+              {
+                key: "ref",
+                header: "ID",
+                searchValues: (r) => [r.ref, r.id, r.plate],
+                render: (r) => (
+                  <RefCell refId={formatRef(r)} entityKind="reservation" />
+                ),
+              },
+              { key: "plate", header: "Patente", render: (r) => r.plate },
+              { key: "spot", header: "Plaza", render: (r) => r.spotLabel },
+              {
+                key: "status",
+                header: "Estado",
+                filterKey: "status",
+                searchValues: (r) => [r.status],
+                render: (r) => <span className="chip">{r.status}</span>,
+              },
+              {
+                key: "net",
+                header: "Importe",
+                render: (r) => (r.net != null ? fmtMoney(r.net) : "—"),
+              },
+              {
+                key: "when",
+                header: "Inicio",
+                render: (r) => fmtDateTime(r.scheduledStart),
+              },
+            ]}
+            filters={[
+              {
+                key: "status",
+                label: "Estado",
+                options: [
+                  { value: "confirmed", label: "Confirmada" },
+                  { value: "cancelled", label: "Cancelada" },
+                ],
+              },
+            ]}
+          />
         </section>
       </div>
 

@@ -27,6 +27,7 @@ bounding_boxes.json
 backend/data/*.json
 backend/.env
 backend/dist
+backend/generated/
 
 # IDE / OS
 .DS_Store

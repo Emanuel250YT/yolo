@@ -4,6 +4,12 @@ import { AppShell } from "../components/AppShell";
 import { DashboardSummary } from "../components/DashboardSummary";
 import { ParkingZoneManager } from "../components/ParkingZoneManager";
 import { DataTable, RefCell } from "../components/DataTable";
+import {
+  EMPTY_PERSONAL_INFO,
+  PersonalInfoFields,
+  validatePersonalInfo,
+  type PersonalInfoForm,
+} from "../components/PersonalInfoFields";
 import { PasswordInput } from "../components/PasswordInput";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { PermisionarioPanel } from "../components/PermisionarioPanel";
@@ -47,6 +53,7 @@ export function MunicipioDashboard() {
     active: true,
   });
   const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [personal, setPersonal] = useState<PersonalInfoForm>(EMPTY_PERSONAL_INFO);
 
   const { busy: creatingStaff, run: runCreateStaff } = useSubmitLock();
   const { busy: togglingUser, run: runToggleUser } = useSubmitLock();
@@ -111,11 +118,16 @@ export function MunicipioDashboard() {
 
   async function createStaff(e: React.FormEvent) {
     e.preventDefault();
+    const personalErr = validatePersonalInfo(personal);
+    if (personalErr) {
+      setError(personalErr);
+      return;
+    }
     await runCreateStaff(async () => {
       setError(null);
       setMessage(null);
       try {
-        await api.municipioCreateUser(form);
+        await api.municipioCreateUser({ ...form, citizen: personal });
         setMessage("Cuenta creada y habilitada para iniciar sesión.");
         setForm({
           email: "",
@@ -281,6 +293,8 @@ export function MunicipioDashboard() {
                 </div>
               </>
             )}
+            <h3>Información personal</h3>
+            <PersonalInfoFields value={personal} onChange={setPersonal} />
             <button
               type="submit"
               className="btn-primary btn-block"

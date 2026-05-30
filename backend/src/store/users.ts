@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import type { Prisma, Sex, User, UserRole } from "@prisma/client";
+import type { Prisma, Sex, User, UserRole } from "../prisma/client.js";
 import { ROLES } from "../config/auth.js";
 
 const VALID_ROLES = new Set<string>(ROLES);
@@ -136,6 +136,9 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
   }
   if (input.role === "permisionario" && !input.legajo?.trim()) {
     throw new Error("El legajo es obligatorio para permisionarios.");
+  }
+  if (!input.citizen) {
+    throw new Error("Los datos personales son obligatorios.");
   }
 
   let parkingZoneId: string | null = null;

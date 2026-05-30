@@ -1,4 +1,4 @@
-import type { UserRole } from "@prisma/client";
+import type { UserRole } from "../prisma/client.js";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
 import { calculateAmount } from "../services/pricing.js";
 import { prisma } from "../lib/prisma.js";

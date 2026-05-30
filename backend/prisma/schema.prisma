@@ -1,5 +1,7 @@
 generator client {
   provider = "prisma-client-js"
+  // Fuera de node_modules para evitar EPERM en Windows/OneDrive (Cursor bloquea el .dll)
+  output   = "../generated/prisma-client"
 }
 
 datasource db {
@@ -44,7 +46,10 @@ enum ReservationStatus {
 enum HistoryAction {
   create
   update
+  delete
   observation
+  activate
+  deactivate
 }
 
 enum PaymentMethod {
@@ -139,8 +144,12 @@ model SystemSetting {
 
 model HistoryEntry {
   id          String         @id @default(uuid())
-  permitId    String
-  permit      Permit         @relation(fields: [permitId], references: [id], onDelete: Cascade)
+  permitId    String?
+  permit      Permit?        @relation(fields: [permitId], references: [id], onDelete: SetNull)
+  entityType  String?
+  entityId    String?
+  entityRef   String?
+  entityLabel String?
   userId      String
   user        User           @relation(fields: [userId], references: [id])
   userName    String
@@ -149,6 +158,9 @@ model HistoryEntry {
   after       Json?
   observation String?
   createdAt   DateTime       @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
 }
 
 /// Zona / sector del SEM (región + cuadras + plazas individuales)

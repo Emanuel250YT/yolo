@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { AppShell } from "../components/AppShell";
+import { DataTable, TableActions } from "../components/DataTable";
 import { ParkingAlertsBanner } from "../components/ParkingAlertsBanner";
 import { PaymentHoldBanner } from "../components/PaymentHoldBanner";
 import { SpotMap } from "../components/SpotMap";
@@ -423,33 +424,73 @@ export function ConductorDashboard() {
               Patentes registradas manualmente o desde el padrón municipal
               (automático).
             </p>
-            <div className="card-list">
-              {vehicles.map((v) => (
-                <article key={v.id} className="list-card">
-                  <strong>{v.plate}</strong>
-                  <span className="chip">
-                    {v.source === "gov" ? "Padrón municipal" : "Manual"}
-                  </span>
-                  <p className="meta">
-                    {v.vehicleType === "motorcycle" ? "Motocicleta" : "Automóvil"}
-                    {v.label ? ` · ${v.label}` : ""}
-                  </p>
-                  {v.source === "manual" && (
-                    <button
-                      type="button"
-                      className="btn-small btn-danger"
-                      disabled={!!pendingId}
-                      onClick={() => removeVehicle(v.id)}
-                    >
-                      Quitar
-                    </button>
-                  )}
-                </article>
-              ))}
-              {vehicles.length === 0 && (
-                <p className="empty">Todavía no registraste vehículos.</p>
-              )}
-            </div>
+            <DataTable
+              rows={vehicles}
+              rowKey={(v) => v.id}
+              searchPlaceholder="Buscar patente…"
+              emptyMessage="Todavía no registraste vehículos."
+              filters={[
+                {
+                  key: "source",
+                  label: "Origen",
+                  options: [
+                    { value: "gov", label: "Padrón municipal" },
+                    { value: "manual", label: "Manual" },
+                  ],
+                },
+              ]}
+              columns={[
+                {
+                  key: "plate",
+                  header: "Patente",
+                  searchValues: (v) => [v.plate, v.label],
+                  render: (v) => <strong>{v.plate}</strong>,
+                },
+                {
+                  key: "type",
+                  header: "Tipo",
+                  searchValues: (v) => [v.vehicleType],
+                  render: (v) =>
+                    v.vehicleType === "motorcycle" ? "Motocicleta" : "Automóvil",
+                },
+                {
+                  key: "source",
+                  header: "Origen",
+                  filterKey: "source",
+                  searchValues: (v) => [v.source],
+                  render: (v) => (
+                    <span className="chip">
+                      {v.source === "gov" ? "Padrón municipal" : "Manual"}
+                    </span>
+                  ),
+                },
+                {
+                  key: "label",
+                  header: "Etiqueta",
+                  searchValues: (v) => [v.label],
+                  render: (v) => v.label ?? "—",
+                },
+                {
+                  key: "actions",
+                  header: "Acciones",
+                  render: (v) =>
+                    v.source === "manual" ? (
+                      <TableActions>
+                        <button
+                          type="button"
+                          className="btn-small btn-danger"
+                          disabled={!!pendingId}
+                          onClick={() => removeVehicle(v.id)}
+                        >
+                          Quitar
+                        </button>
+                      </TableActions>
+                    ) : (
+                      <span className="meta">—</span>
+                    ),
+                },
+              ]}
+            />
           </section>
 
           <section className="panel">

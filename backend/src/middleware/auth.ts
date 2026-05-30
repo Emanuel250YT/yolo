@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "../config/auth.js";
 import { findById, sanitizeUser } from "../store/users.js";
-import type { UserRole } from "@prisma/client";
+import type { UserRole } from "../prisma/client.js";
 
 interface JwtPayload {
   sub: string;

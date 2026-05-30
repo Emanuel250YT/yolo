@@ -1,12 +1,19 @@
 import { SHIFTS } from "../config/tariffs.js";
 import { getShiftStatus } from "./shifts.js";
 
+export function isDevToolsEnabled() {
+  return (
+    process.env.ENABLE_DEV_TOOLS === "true" ||
+    process.env.NODE_ENV !== "production"
+  );
+}
+
 export function getShiftStatusWithDevOverride(
   override: string | undefined,
   date = new Date(),
 ) {
   const base = getShiftStatus(date);
-  if (process.env.NODE_ENV === "production" || !override || override === "auto") {
+  if (!isDevToolsEnabled() || !override || override === "auto") {
     return base;
   }
 

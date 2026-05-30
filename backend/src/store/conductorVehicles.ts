@@ -1,4 +1,4 @@
-import type { VehicleType } from "@prisma/client";
+import type { VehicleType } from "../prisma/client.js";
 import { prisma } from "../lib/prisma.js";
 
 function mapVehicle(v: {

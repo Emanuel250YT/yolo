@@ -1,4 +1,4 @@
-import type { UserRole } from "@prisma/client";
+import type { UserRole } from "../prisma/client.js";
 import { PUBLIC_REGISTER_ROLES, STAFF_ROLES } from "../config/auth.js";
 import {
   createUser,
@@ -115,6 +115,7 @@ export async function registerStaffByMunicipio(
     active: body.active !== false,
     activationPending: false,
     createdByMunicipio: true,
+    citizen: body.citizen as CreateUserInput["citizen"],
   });
 
   return { user };

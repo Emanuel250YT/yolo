@@ -224,102 +224,14 @@ const DEFAULT_ZONES: {
   region: string;
   description: string;
   polygon: [number, number][];
-}[] = [
-  {
-    code: "microcentro",
-    name: "Microcentro",
-    region: "Centro",
-    description: "Zona diurna microcentro",
-    polygon: [
-      [-24.7838, -65.4148],
-      [-24.7838, -65.4082],
-      [-24.7882, -65.4082],
-      [-24.7882, -65.4148],
-    ],
-  },
-  {
-    code: "paseo-balcarce",
-    name: "Paseo Balcarce",
-    region: "Centro",
-    description: "",
-    polygon: [
-      [-24.7882, -65.4105],
-      [-24.7882, -65.407],
-      [-24.7908, -65.407],
-      [-24.7908, -65.4105],
-    ],
-  },
-  {
-    code: "paseo-guemes",
-    name: "Paseo Güemes",
-    region: "Norte",
-    description: "",
-    polygon: [
-      [-24.7812, -65.4182],
-      [-24.7812, -65.4148],
-      [-24.7838, -65.4148],
-      [-24.7838, -65.4182],
-    ],
-  },
-  {
-    code: "plaza-alvarado",
-    name: "Plaza Alvarado",
-    region: "Sur",
-    description: "",
-    polygon: [
-      [-24.79, -65.4158],
-      [-24.79, -65.4126],
-      [-24.7924, -65.4126],
-      [-24.7924, -65.4158],
-    ],
-  },
-  {
-    code: "locales-diversión",
-    name: "Locales de diversión",
-    region: "Este",
-    description: "Turno nocturno",
-    polygon: [
-      [-24.7775, -65.4112],
-      [-24.7775, -65.4078],
-      [-24.7801, -65.4078],
-      [-24.7801, -65.4112],
-    ],
-  },
-];
+}[] = [];
 
 export async function migrateZonePolygonsIfEmpty() {
-  const zones = await prisma.parkingZone.findMany();
-  const byCode = new Map(DEFAULT_ZONES.map((z) => [z.code, z.polygon]));
-
-  for (const z of zones) {
-    const existing = parsePolygons(z.polygons);
-    if (existing.some((p) => p.points.length >= 3)) continue;
-    const points = byCode.get(z.code);
-    if (!points) continue;
-    await prisma.parkingZone.update({
-      where: { id: z.id },
-      data: { polygons: [{ points }] },
-    });
-  }
+  /* sin datos mock — los polígonos se definen en la app */
 }
 
 export async function seedParkingZonesIfEmpty() {
-  const count = await prisma.parkingZone.count();
-  if (count > 0) return;
-
-  for (const z of DEFAULT_ZONES) {
-    await prisma.parkingZone.create({
-      data: {
-        code: z.code,
-        name: z.name,
-        region: z.region ?? "Centro",
-        description: z.description,
-        polygons: z.polygon.length >= 3 ? [{ points: z.polygon }] : [],
-        enabled: true,
-      },
-    });
-  }
-  console.log("[SEM] Zonas de parking iniciales creadas.");
+  /* sin zonas precargadas — se crean desde el panel */
 }
 
 /** Vincula permisionarios existentes por código en `zone` */

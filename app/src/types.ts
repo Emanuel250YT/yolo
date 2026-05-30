@@ -171,10 +171,20 @@ export interface Permit {
 
 export interface HistoryEntry {
   id: string;
-  permitId: string;
+  permitId: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  entityRef?: string | null;
+  entityLabel?: string | null;
   userId: string;
   userName: string;
-  action: "create" | "update" | "observation";
+  action:
+    | "create"
+    | "update"
+    | "delete"
+    | "observation"
+    | "activate"
+    | "deactivate";
   before?: unknown;
   after?: unknown;
   observation: string | null;

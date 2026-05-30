@@ -1,4 +1,4 @@
-import type { PaymentMethod, PermitStatus, Prisma, VehicleType } from "@prisma/client";
+import type { PaymentMethod, PermitStatus, Prisma, VehicleType } from "../prisma/client.js";
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -149,6 +149,8 @@ export async function createPermit(
     userId: actor.id,
     userName: actor.name,
     action: "create",
+    entityRef: permit.ref,
+    entityLabel: permit.plate,
     after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
     observation: `Pago ${paymentMethod === "cash" ? "en efectivo" : "MercadoPago (simulado)"} · $${pricing.net}`,
   });
@@ -203,6 +205,8 @@ export async function updatePermit(
     userId: actor.id,
     userName: actor.name,
     action: "update",
+    entityRef: permit.ref,
+    entityLabel: permit.plate,
     before: JSON.parse(JSON.stringify(before)) as Prisma.InputJsonValue,
     after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
     observation:

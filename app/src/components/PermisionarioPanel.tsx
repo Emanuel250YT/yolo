@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useDevTools } from "../dev/DevToolsContext";
 import { DataTable, RefCell, TableActions } from "./DataTable";
+import { HistoryTable } from "./HistoryTable";
 import { OutOfHoursNotice } from "./OutOfHoursNotice";
 import { PermisionarioSpotPanel } from "./PermisionarioSpotPanel";
 import { PriceCard } from "./PriceCard";
@@ -623,16 +624,7 @@ export function PermisionarioPanel({
       {activeTab === "historial" && (
         <section className="panel">
           <h2>Historial de cambios</h2>
-          <ul className="history-list">
-            {history.map((h) => (
-              <li key={h.id}>
-                <span className={`hist-action ${h.action}`}>{h.action}</span>
-                {isStaff && <strong>{h.userName}</strong>}
-                <p>{h.observation || JSON.stringify(h.after ?? {})}</p>
-                <time>{new Date(h.createdAt).toLocaleString("es-AR")}</time>
-              </li>
-            ))}
-          </ul>
+          <HistoryTable rows={history} showActor={isStaff} />
         </section>
       )}
 

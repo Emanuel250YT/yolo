@@ -1,4 +1,4 @@
-import type { UserRole, VehicleType } from "@prisma/client";
+import type { UserRole, VehicleType } from "../prisma/client.js";
 
 export type { UserRole, VehicleType };
 

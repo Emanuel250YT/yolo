@@ -3,6 +3,12 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSubmitLock } from "../hooks/useSubmitLock";
 import { DataTable, RefCell, TableActions } from "./DataTable";
+import {
+  EMPTY_PERSONAL_INFO,
+  PersonalInfoFields,
+  validatePersonalInfo,
+  type PersonalInfoForm,
+} from "./PersonalInfoFields";
 import { PasswordInput } from "./PasswordInput";
 import { RegisterStepper } from "./RegisterStepper";
 import { SearchableSelect } from "./SearchableSelect";
@@ -60,6 +66,7 @@ export function UsersManager({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [personal, setPersonal] = useState<PersonalInfoForm>(EMPTY_PERSONAL_INFO);
   const [editing, setEditing] = useState<User | null>(null);
   const [editZoneId, setEditZoneId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +124,7 @@ export function UsersManager({
     if (role === "permisionario" && !parkingZoneId) {
       return "Seleccioná la zona asignada.";
     }
-    return null;
+    return validatePersonalInfo(personal);
   }
 
   function validateStep3(): string | null {
@@ -152,6 +159,7 @@ export function UsersManager({
     setEmail("");
     setPassword("");
     setPassword2("");
+    setPersonal(EMPTY_PERSONAL_INFO);
     setParkingZoneId(zones[0]?.id ?? "");
   }
 
@@ -170,6 +178,7 @@ export function UsersManager({
           password,
           name,
           role,
+          citizen: personal,
         };
         if (role === "permisionario") {
           payload.legajo = legajo;
@@ -293,6 +302,8 @@ export function UsersManager({
                     </div>
                   </>
                 )}
+                <h3 className="wizard-subtitle">Información personal</h3>
+                <PersonalInfoFields value={personal} onChange={setPersonal} />
               </div>
             )}
 
@@ -393,6 +404,18 @@ export function UsersManager({
                 render: (u) => (
                   <RefCell refId={formatRef(u)} entityKind="user" />
                 ),
+              },
+              {
+                key: "dni",
+                header: "DNI",
+                searchValues: (u) => [u.citizen?.dni],
+                render: (u) => u.citizen?.dni ?? "—",
+              },
+              {
+                key: "phone",
+                header: "Teléfono",
+                searchValues: (u) => [u.citizen?.phone],
+                render: (u) => u.citizen?.phone ?? "—",
               },
               {
                 key: "name",
