@@ -1,9 +1,20 @@
+import { backfillMissingRefs } from "./lib/shortRef.js";
 import { MUNICIPIO_EMAIL, MUNICIPIO_PASSWORD } from "./config/auth.js";
-import { seedSpotsIfEmpty } from "./store/spots.js";
+import {
+  linkUsersToParkingZones,
+  migrateZonePolygonsIfEmpty,
+  seedParkingZonesIfEmpty,
+} from "./store/parkingZones.js";
+import { migrateLegacySpotsToBlocks, seedSpotsIfEmpty } from "./store/spots.js";
 import { createUser, findByEmail } from "./store/users.js";
 
 export async function runSeed() {
+  await seedParkingZonesIfEmpty();
+  await migrateZonePolygonsIfEmpty();
+  await linkUsersToParkingZones();
+  await migrateLegacySpotsToBlocks();
   await seedSpotsIfEmpty();
+  await backfillMissingRefs();
 
   if (!MUNICIPIO_EMAIL || !MUNICIPIO_PASSWORD) {
     console.warn(

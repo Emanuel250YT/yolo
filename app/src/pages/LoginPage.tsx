@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/client";
 import { AuthLayout } from "../components/AuthLayout";
+import { PasswordInput } from "../components/PasswordInput";
 
 const ROLE_LABELS: Record<string, string> = {
   permisionario: "permisionario",
@@ -78,9 +79,8 @@ export function LoginPage() {
 
         <div className="field">
           <label htmlFor="login-password">Contraseña</label>
-          <input
+          <PasswordInput
             id="login-password"
-            type="password"
             required
             autoComplete="current-password"
             placeholder="••••••••"

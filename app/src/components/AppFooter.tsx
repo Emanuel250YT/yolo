@@ -2,11 +2,14 @@ import { BrandLogo } from "./BrandLogo";
 
 interface AppFooterProps {
   dark?: boolean;
+  className?: string;
 }
 
-export function AppFooter({ dark = false }: AppFooterProps) {
+export function AppFooter({ dark = false, className = "" }: AppFooterProps) {
   return (
-    <footer className={`app-footer ${dark ? "app-footer--dark" : ""}`}>
+    <footer
+      className={`app-footer ${dark ? "app-footer--dark" : ""} ${className}`.trim()}
+    >
       <BrandLogo
         variant="municipality"
         size="xs"

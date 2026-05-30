@@ -1,8 +1,10 @@
 import { prisma } from "../lib/prisma.js";
+import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
 
 function mapSession(s: {
   id: string;
+  ref: string | null;
   plate: string;
   vehicleType: string;
   zone: string;
@@ -15,6 +17,7 @@ function mapSession(s: {
 }) {
   return {
     id: s.id,
+    ref: s.ref,
     plate: s.plate,
     vehicleType: s.vehicleType,
     zone: s.zone,
@@ -41,6 +44,7 @@ export async function createSession(input: {
 
   const session = await prisma.parkingSession.create({
     data: {
+      ref: await generateUniqueRef("parkingSession"),
       plate: input.plate.trim().toUpperCase(),
       vehicleType:
         input.vehicleType === "motorcycle" ? "motorcycle" : "auto",

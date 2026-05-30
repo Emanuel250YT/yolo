@@ -31,3 +31,5 @@ backend/dist
 # IDE / OS
 .DS_Store
 *.log
+
+*/.env

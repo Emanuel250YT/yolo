@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma.js";
+import { generateUniqueRef } from "../lib/shortRef.js";
 
 export type ParkingPolygon = { points: [number, number][] };
 
@@ -12,17 +13,19 @@ function parsePolygons(raw: unknown): ParkingPolygon[] {
         Array.isArray((p as ParkingPolygon).points),
     )
     .map((p) => ({
-      points: p.points.map(([x, y]) => [
-        Math.round(Number(x)),
-        Math.round(Number(y)),
+      points: p.points.map(([lat, lng]) => [
+        Number(lat),
+        Number(lng),
       ]) as [number, number][],
     }));
 }
 
 function mapZone(z: {
   id: string;
+  ref: string | null;
   code: string;
   name: string;
+  region: string;
   description: string;
   imageMimeType: string | null;
   imageBase64: string | null;
@@ -36,15 +39,17 @@ function mapZone(z: {
   const polygons = parsePolygons(z.polygons);
   return {
     id: z.id,
+    ref: z.ref,
     code: z.code,
     name: z.name,
+    region: z.region,
     description: z.description,
     imageMimeType: z.imageMimeType,
     hasImage: Boolean(z.imageBase64),
     imageWidth: z.imageWidth,
     imageHeight: z.imageHeight,
     polygons,
-    slotCount: polygons.length,
+    slotCount: polygons.filter((p) => p.points.length >= 3).length,
     enabled: z.enabled,
     createdAt: z.createdAt.toISOString(),
     updatedAt: z.updatedAt.toISOString(),
@@ -98,6 +103,7 @@ function stripBase64(data: string) {
 export async function createParkingZone(input: {
   code: string;
   name: string;
+  region?: string;
   description?: string;
   imageMimeType?: string;
   imageBase64?: string;
@@ -122,8 +128,10 @@ export async function createParkingZone(input: {
 
   const z = await prisma.parkingZone.create({
     data: {
+      ref: await generateUniqueRef("parkingZone"),
       code,
       name: input.name.trim(),
+      region: input.region?.trim() || "Centro",
       description: input.description?.trim() ?? "",
       imageMimeType,
       imageBase64,
@@ -141,6 +149,7 @@ export async function updateParkingZone(
   input: {
     code?: string;
     name?: string;
+    region?: string;
     description?: string;
     imageMimeType?: string;
     imageBase64?: string | null;
@@ -171,6 +180,7 @@ export async function updateParkingZone(
         ? { code: normalizeCode(input.code) }
         : {}),
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+      ...(input.region !== undefined ? { region: input.region.trim() } : {}),
       ...(input.description !== undefined
         ? { description: input.description.trim() }
         : {}),
@@ -194,6 +204,141 @@ export async function updateParkingZone(
 export async function deleteParkingZone(id: string) {
   const existing = await prisma.parkingZone.findUnique({ where: { id } });
   if (!existing) return false;
+
+  const assigned = await prisma.user.count({
+    where: { parkingZoneId: id },
+  });
+  if (assigned > 0) {
+    throw new Error(
+      `No se puede eliminar: ${assigned} permisionario(s) tienen esta zona asignada.`,
+    );
+  }
+
   await prisma.parkingZone.delete({ where: { id } });
   return true;
+}
+
+const DEFAULT_ZONES: {
+  code: string;
+  name: string;
+  region: string;
+  description: string;
+  polygon: [number, number][];
+}[] = [
+  {
+    code: "microcentro",
+    name: "Microcentro",
+    region: "Centro",
+    description: "Zona diurna microcentro",
+    polygon: [
+      [-24.7838, -65.4148],
+      [-24.7838, -65.4082],
+      [-24.7882, -65.4082],
+      [-24.7882, -65.4148],
+    ],
+  },
+  {
+    code: "paseo-balcarce",
+    name: "Paseo Balcarce",
+    region: "Centro",
+    description: "",
+    polygon: [
+      [-24.7882, -65.4105],
+      [-24.7882, -65.407],
+      [-24.7908, -65.407],
+      [-24.7908, -65.4105],
+    ],
+  },
+  {
+    code: "paseo-guemes",
+    name: "Paseo Güemes",
+    region: "Norte",
+    description: "",
+    polygon: [
+      [-24.7812, -65.4182],
+      [-24.7812, -65.4148],
+      [-24.7838, -65.4148],
+      [-24.7838, -65.4182],
+    ],
+  },
+  {
+    code: "plaza-alvarado",
+    name: "Plaza Alvarado",
+    region: "Sur",
+    description: "",
+    polygon: [
+      [-24.79, -65.4158],
+      [-24.79, -65.4126],
+      [-24.7924, -65.4126],
+      [-24.7924, -65.4158],
+    ],
+  },
+  {
+    code: "locales-diversión",
+    name: "Locales de diversión",
+    region: "Este",
+    description: "Turno nocturno",
+    polygon: [
+      [-24.7775, -65.4112],
+      [-24.7775, -65.4078],
+      [-24.7801, -65.4078],
+      [-24.7801, -65.4112],
+    ],
+  },
+];
+
+export async function migrateZonePolygonsIfEmpty() {
+  const zones = await prisma.parkingZone.findMany();
+  const byCode = new Map(DEFAULT_ZONES.map((z) => [z.code, z.polygon]));
+
+  for (const z of zones) {
+    const existing = parsePolygons(z.polygons);
+    if (existing.some((p) => p.points.length >= 3)) continue;
+    const points = byCode.get(z.code);
+    if (!points) continue;
+    await prisma.parkingZone.update({
+      where: { id: z.id },
+      data: { polygons: [{ points }] },
+    });
+  }
+}
+
+export async function seedParkingZonesIfEmpty() {
+  const count = await prisma.parkingZone.count();
+  if (count > 0) return;
+
+  for (const z of DEFAULT_ZONES) {
+    await prisma.parkingZone.create({
+      data: {
+        code: z.code,
+        name: z.name,
+        region: z.region ?? "Centro",
+        description: z.description,
+        polygons: z.polygon.length >= 3 ? [{ points: z.polygon }] : [],
+        enabled: true,
+      },
+    });
+  }
+  console.log("[SEM] Zonas de parking iniciales creadas.");
+}
+
+/** Vincula permisionarios existentes por código en `zone` */
+export async function linkUsersToParkingZones() {
+  const zones = await prisma.parkingZone.findMany();
+  const byCode = new Map(zones.map((z) => [z.code, z.id]));
+
+  const users = await prisma.user.findMany({
+    where: { role: "permisionario", zone: { not: null } },
+  });
+
+  for (const u of users) {
+    if (!u.zone || u.parkingZoneId) continue;
+    const id = byCode.get(u.zone);
+    if (id) {
+      await prisma.user.update({
+        where: { id: u.id },
+        data: { parkingZoneId: id },
+      });
+    }
+  }
 }

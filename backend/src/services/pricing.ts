@@ -1,23 +1,26 @@
+import type { TariffConfig } from "../store/tariffs.js";
 import { TARIFFS } from "../config/tariffs.js";
 
 export interface PricingInput {
   vehicleType?: "auto" | "motorcycle" | string;
   minutes?: number;
   digitalPayment?: boolean;
+  tariffs?: TariffConfig;
 }
 
 export function calculateAmount({
   vehicleType = "auto",
   minutes = 0,
   digitalPayment = false,
+  tariffs = TARIFFS,
 }: PricingInput) {
   const rate =
     vehicleType === "motorcycle"
-      ? TARIFFS.motorcyclePerHour
-      : TARIFFS.autoPerHour;
+      ? tariffs.motorcyclePerHour
+      : tariffs.autoPerHour;
 
-  if (minutes <= TARIFFS.toleranceMinutes) {
-    return finalize(0, digitalPayment);
+  if (minutes <= tariffs.toleranceMinutes) {
+    return finalize(0, digitalPayment, tariffs);
   }
 
   let total = 0;
@@ -27,19 +30,23 @@ export function calculateAmount({
   remaining -= firstHourMinutes;
 
   if (remaining > 0) {
-    const fractionBlocks = Math.ceil(remaining / TARIFFS.fractionMinutes);
-    const fractionRate = (rate / 60) * TARIFFS.fractionMinutes;
+    const fractionBlocks = Math.ceil(remaining / tariffs.fractionMinutes);
+    const fractionRate = (rate / 60) * tariffs.fractionMinutes;
     total += fractionBlocks * fractionRate;
   }
 
-  return finalize(Math.round(total), digitalPayment);
+  return finalize(Math.round(total), digitalPayment, tariffs);
 }
 
-function finalize(amount: number, digitalPayment: boolean) {
+function finalize(
+  amount: number,
+  digitalPayment: boolean,
+  tariffs: TariffConfig,
+) {
   const gross = amount;
   const discount =
     digitalPayment && gross > 0
-      ? Math.round(gross * TARIFFS.digitalDiscountRate)
+      ? Math.round(gross * tariffs.digitalDiscountRate)
       : 0;
   return {
     gross,
@@ -47,10 +54,10 @@ function finalize(amount: number, digitalPayment: boolean) {
     net: gross - discount,
     digitalPayment,
     rules: {
-      toleranceMinutes: TARIFFS.toleranceMinutes,
-      digitalDiscountRate: TARIFFS.digitalDiscountRate,
-      fractionMinutes: TARIFFS.fractionMinutes,
-      fractionFromHour: TARIFFS.fractionFromHour,
+      toleranceMinutes: tariffs.toleranceMinutes,
+      digitalDiscountRate: tariffs.digitalDiscountRate,
+      fractionMinutes: tariffs.fractionMinutes,
+      fractionFromHour: tariffs.fractionFromHour,
     },
   };
 }

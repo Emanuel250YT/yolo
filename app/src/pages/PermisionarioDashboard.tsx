@@ -5,8 +5,8 @@ import { PermisionarioPanel } from "../components/PermisionarioPanel";
 const NAV = [
   { id: "permisos", label: "Permisos" },
   { id: "nuevo", label: "Nuevo permiso" },
+  { id: "plazas", label: "Plazas" },
   { id: "historial", label: "Historial" },
-  { id: "sesiones", label: "Sesiones" },
 ];
 
 export function PermisionarioDashboard() {
@@ -19,8 +19,13 @@ export function PermisionarioDashboard() {
       nav={NAV}
       tab={tab}
       onTab={setTab}
+      mobileDock={{
+        left: { tabId: "plazas", label: "Plazas" },
+        center: { tabId: "nuevo", label: "Nuevo permiso" },
+        right: { action: "menu", label: "Mi perfil" },
+      }}
     >
-      <PermisionarioPanel activeTab={tab} />
+      <PermisionarioPanel activeTab={tab} onTabChange={setTab} />
     </AppShell>
   );
 }

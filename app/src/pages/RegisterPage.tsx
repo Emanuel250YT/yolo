@@ -3,8 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout } from "../components/AuthLayout";
+import { PasswordInput } from "../components/PasswordInput";
 import { RegisterStepper } from "../components/RegisterStepper";
-import type { RegisterRole } from "../types";
+import { SearchableSelect } from "../components/SearchableSelect";
+import type { ParkingZone, RegisterRole } from "../types";
+import { zoneIdOptions } from "../utils/selectOptions";
 
 const STEPS = ["Tipo de cuenta", "Tus datos", "Acceso"] as const;
 
@@ -53,7 +56,8 @@ export function RegisterPage() {
   const [password2, setPassword2] = useState("");
   const [name, setName] = useState("");
   const [legajo, setLegajo] = useState("");
-  const [zone, setZone] = useState("microcentro");
+  const [parkingZoneId, setParkingZoneId] = useState("");
+  const [zones, setZones] = useState<ParkingZone[]>([]);
   const [citizen, setCitizen] = useState(emptyCitizen);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -61,6 +65,13 @@ export function RegisterPage() {
 
   useEffect(() => {
     api.authConfig().then(setConfig).catch(() => null);
+    api
+      .parkingZones()
+      .then((r) => {
+        setZones(r.zones);
+        if (r.zones[0]) setParkingZoneId(r.zones[0].id);
+      })
+      .catch(() => null);
   }, []);
 
   const step2Title = useMemo(() => {
@@ -95,6 +106,9 @@ export function RegisterPage() {
     if (!name.trim()) return "El nombre completo es obligatorio.";
     if (role === "permisionario" && !legajo.trim()) {
       return "El legajo es obligatorio para permisionarios.";
+    }
+    if (role === "permisionario" && !parkingZoneId) {
+      return "Seleccioná la zona asignada.";
     }
     return null;
   }
@@ -151,7 +165,8 @@ export function RegisterPage() {
         password,
         name: role === "conductor" ? undefined : name,
         legajo: role === "permisionario" ? legajo : undefined,
-        zone: role === "permisionario" ? zone : undefined,
+        parkingZoneId:
+          role === "permisionario" ? parkingZoneId : undefined,
         citizen:
           role === "conductor"
             ? { ...citizen, sex: citizen.sex as "F" | "M" | "X" }
@@ -419,11 +434,13 @@ export function RegisterPage() {
                       />
                     </div>
                     <div className="field">
-                      <label htmlFor="zone">Zona / cuadra</label>
-                      <input
-                        id="zone"
-                        value={zone}
-                        onChange={(e) => setZone(e.target.value)}
+                      <label htmlFor="parkingZoneId">Zona asignada *</label>
+                      <SearchableSelect
+                        id="parkingZoneId"
+                        required
+                        value={parkingZoneId}
+                        onChange={setParkingZoneId}
+                        options={zoneIdOptions(zones)}
                       />
                     </div>
                   </>
@@ -453,9 +470,8 @@ export function RegisterPage() {
             <div className="form-row">
               <div className="field">
                 <label htmlFor="reg-pass">Contraseña *</label>
-                <input
+                <PasswordInput
                   id="reg-pass"
-                  type="password"
                   required
                   minLength={6}
                   autoComplete="new-password"
@@ -465,9 +481,8 @@ export function RegisterPage() {
               </div>
               <div className="field">
                 <label htmlFor="reg-pass2">Repetir contraseña *</label>
-                <input
+                <PasswordInput
                   id="reg-pass2"
-                  type="password"
                   required
                   minLength={6}
                   autoComplete="new-password"

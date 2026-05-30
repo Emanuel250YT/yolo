@@ -83,6 +83,7 @@ export async function registerPublicUser(body: Record<string, unknown>) {
     role: role as UserRole,
     legajo: body.legajo as string | undefined,
     zone: body.zone as string | undefined,
+    parkingZoneId: body.parkingZoneId as string | undefined,
     active: false,
     activationPending: true,
   });
@@ -110,6 +111,7 @@ export async function registerStaffByMunicipio(
     role: role as UserRole,
     legajo: body.legajo as string | undefined,
     zone: body.zone as string | undefined,
+    parkingZoneId: body.parkingZoneId as string | undefined,
     active: body.active !== false,
     activationPending: false,
     createdByMunicipio: true,

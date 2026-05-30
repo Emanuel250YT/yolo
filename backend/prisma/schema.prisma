@@ -47,20 +47,30 @@ enum HistoryAction {
   observation
 }
 
+enum PaymentMethod {
+  cash
+  mercadopago
+}
+
 model User {
   id                 String          @id @default(uuid())
+  ref                String?         @unique @db.VarChar(6)
   email              String          @unique
   passwordHash       String
   name               String
   role               UserRole
   legajo             String?
+  /// Código de zona (denormalizado desde ParkingZone)
   zone               String?
+  parkingZoneId      String?
+  parkingZone        ParkingZone?    @relation(fields: [parkingZoneId], references: [id])
   active             Boolean         @default(true)
   activationPending  Boolean         @default(false)
   createdByMunicipio Boolean         @default(false)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   citizen            CitizenProfile?
+  vehicles           ConductorVehicle[]
   permits            Permit[]
   reservations       Reservation[]
   historyEntries     HistoryEntry[]
@@ -84,22 +94,47 @@ model CitizenProfile {
   plate       String?
 }
 
+model ConductorVehicle {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plate       String
+  vehicleType VehicleType @default(auto)
+  label       String?
+  /// manual = alta del conductor; gov = API municipal (automático)
+  source      String      @default("manual")
+  createdAt   DateTime    @default(now())
+
+  @@unique([userId, plate])
+}
+
 model Permit {
-  id                  String       @id @default(uuid())
+  id                  String         @id @default(uuid())
+  ref                 String?        @unique @db.VarChar(6)
   permisionarioId     String
-  permisionario       User         @relation(fields: [permisionarioId], references: [id])
+  permisionario       User           @relation(fields: [permisionarioId], references: [id])
   permisionarioName   String
   permisionarioLegajo String?
   plate               String
   zone                String
   vehicleType         VehicleType
   notes               String?
-  status              PermitStatus @default(active)
-  startAt             DateTime     @default(now())
+  durationMinutes     Int            @default(60)
+  pricing             Json?
+  paymentMethod       PaymentMethod?
+  paidAt              DateTime?
+  status              PermitStatus   @default(active)
+  startAt             DateTime       @default(now())
   endAt               DateTime?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
   history             HistoryEntry[]
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
 }
 
 model HistoryEntry {
@@ -116,38 +151,93 @@ model HistoryEntry {
   createdAt   DateTime       @default(now())
 }
 
-/// Zona de visión (polígonos Ultralytics / PyTorch sobre imagen de referencia)
+/// Zona / sector del SEM (región + cuadras + plazas individuales)
 model ParkingZone {
-  id            String   @id @default(uuid())
-  code          String   @unique
+  id            String         @id @default(uuid())
+  ref           String?        @unique @db.VarChar(6)
+  code          String         @unique
   name          String
-  description   String   @default("")
+  region        String         @default("Centro")
+  description   String         @default("")
   imageMimeType String?
-  imageBase64   String?  @db.Text
+  imageBase64   String?        @db.Text
   imageWidth    Int?
   imageHeight   Int?
   /// [{ "points": [[x,y], ...] }, ...]
-  polygons      Json     @default("[]")
-  enabled       Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  polygons      Json           @default("[]")
+  enabled       Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  permisionarios User[]
+  blocks        ParkingBlock[]
+  spots         Spot[]
+}
+
+model ParkingBlock {
+  id        String      @id @default(uuid())
+  ref       String?     @unique @db.VarChar(6)
+  zoneId    String
+  zone      ParkingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  street    String      @default("")
+  lat       Float?
+  lng       Float?
+  enabled   Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  spots     Spot[]
+
+  @@unique([zoneId, code])
 }
 
 model Spot {
-  id        String   @id @default(uuid())
-  label     String
-  zone      String
-  address   String   @default("")
-  capacity  Int      @default(10)
-  occupied  Int      @default(0)
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  reservations Reservation[]
+  id              String         @id @default(uuid())
+  ref             String?        @unique @db.VarChar(6)
+  parkingZoneId   String?
+  parkingZone     ParkingZone?   @relation(fields: [parkingZoneId], references: [id], onDelete: SetNull)
+  blockId         String?
+  block           ParkingBlock?  @relation(fields: [blockId], references: [id], onDelete: SetNull)
+  region          String?
+  zone            String
+  label           String
+  row             Int            @default(0)
+  col             Int            @default(0)
+  address         String         @default("")
+  lat             Float?
+  lng             Float?
+  capacity        Int            @default(1)
+  occupied        Int            @default(0)
+  enabled         Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  reservations    Reservation[]
+  holds           SpotHold[]
+}
+
+model SpotHold {
+  id               String      @id @default(uuid())
+  ref              String?     @unique @db.VarChar(6)
+  spotId           String
+  spot             Spot        @relation(fields: [spotId], references: [id], onDelete: Cascade)
+  userId           String
+  userName         String
+  plate            String
+  vehicleType      VehicleType
+  scheduledStart   DateTime
+  durationMinutes  Int
+  digitalPayment   Boolean     @default(false)
+  pricing          Json
+  expiresAt        DateTime
+  createdAt        DateTime    @default(now())
+
+  @@index([spotId])
+  @@index([expiresAt])
 }
 
 model Reservation {
   id               String            @id @default(uuid())
+  ref              String?           @unique @db.VarChar(6)
   userId           String
   user             User              @relation(fields: [userId], references: [id])
   userName         String
@@ -168,6 +258,7 @@ model Reservation {
 
 model ParkingSession {
   id              String        @id @default(uuid())
+  ref             String?       @unique @db.VarChar(6)
   plate           String
   vehicleType     VehicleType
   zone            String

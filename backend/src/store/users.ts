@@ -4,20 +4,33 @@ import { ROLES } from "../config/auth.js";
 
 const VALID_ROLES = new Set<string>(ROLES);
 import { prisma } from "../lib/prisma.js";
+import { generateUniqueRef } from "../lib/shortRef.js";
 import type { CitizenDto, SafeUser } from "../types/api.js";
+import { resolveParkingZoneAssignment } from "./zoneAssignment.js";
 
 export type { SafeUser };
 
-type UserWithCitizen = User & { citizen: Prisma.CitizenProfileGetPayload<object> | null };
+type UserWithRelations = User & {
+  citizen: Prisma.CitizenProfileGetPayload<object> | null;
+  parkingZone: { id: string; code: string; name: string } | null;
+};
 
-export function sanitizeUser(user: UserWithCitizen): SafeUser {
+const userInclude = {
+  citizen: true,
+  parkingZone: { select: { id: true, code: true, name: true } },
+} as const;
+
+export function sanitizeUser(user: UserWithRelations): SafeUser {
   const base: SafeUser = {
     id: user.id,
+    ref: user.ref,
     email: user.email,
     name: user.name,
     role: user.role,
     legajo: user.legajo,
     zone: user.zone,
+    parkingZoneId: user.parkingZoneId,
+    zoneName: user.parkingZone?.name ?? null,
     active: user.active,
     activationPending: user.activationPending,
     createdByMunicipio: user.createdByMunicipio,
@@ -45,14 +58,14 @@ export function sanitizeUser(user: UserWithCitizen): SafeUser {
 export async function findByEmail(email: string) {
   return prisma.user.findUnique({
     where: { email: email.toLowerCase().trim() },
-    include: { citizen: true },
+    include: userInclude,
   });
 }
 
 export async function findByDni(dni: string) {
   const profile = await prisma.citizenProfile.findUnique({
     where: { dni: dni.trim() },
-    include: { user: { include: { citizen: true } } },
+    include: { user: { include: userInclude } },
   });
   return profile?.user ?? null;
 }
@@ -60,7 +73,7 @@ export async function findByDni(dni: string) {
 export async function findById(id: string) {
   return prisma.user.findUnique({
     where: { id },
-    include: { citizen: true },
+    include: userInclude,
   });
 }
 
@@ -75,7 +88,7 @@ export async function listUsers(opts: {
         ? { activationPending: true }
         : {}),
     },
-    include: { citizen: true },
+    include: userInclude,
     orderBy: { createdAt: "desc" },
   });
   return users.map(sanitizeUser);
@@ -102,6 +115,7 @@ export interface CreateUserInput {
   role: UserRole;
   legajo?: string | null;
   zone?: string | null;
+  parkingZoneId?: string | null;
   active?: boolean;
   activationPending?: boolean;
   citizen?: CitizenInput | null;
@@ -124,16 +138,31 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
     throw new Error("El legajo es obligatorio para permisionarios.");
   }
 
+  let parkingZoneId: string | null = null;
+  let zone: string | null = input.zone?.trim() || null;
+
+  if (input.role === "permisionario") {
+    const assign = await resolveParkingZoneAssignment({
+      parkingZoneId: input.parkingZoneId,
+      zone: input.zone,
+      required: true,
+    });
+    parkingZoneId = assign.parkingZoneId;
+    zone = assign.zone;
+  }
+
   const passwordHash = await bcrypt.hash(input.password, 10);
 
   const user = await prisma.user.create({
     data: {
+      ref: await generateUniqueRef("user"),
       email: normalized,
       passwordHash,
       name: input.name?.trim() || normalized.split("@")[0],
       role: input.role,
       legajo: input.legajo?.trim() || null,
-      zone: input.zone?.trim() || null,
+      zone,
+      parkingZoneId,
       active: Boolean(input.active ?? true),
       activationPending: Boolean(input.activationPending ?? false),
       createdByMunicipio: Boolean(input.createdByMunicipio ?? false),
@@ -157,7 +186,7 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
           }
         : {}),
     },
-    include: { citizen: true },
+    include: userInclude,
   });
 
   return sanitizeUser(user);
@@ -174,6 +203,7 @@ export async function updateUser(
     name: string;
     legajo: string | null;
     zone: string | null;
+    parkingZoneId: string | null;
     active: boolean;
     activationPending: boolean;
     role: UserRole;
@@ -193,11 +223,11 @@ export async function updateUser(
     }
   }
 
+  const role = patch.role ?? existing.role;
   const data: Prisma.UserUpdateInput = {};
   if (patch.email) data.email = patch.email.toLowerCase().trim();
   if (patch.name !== undefined) data.name = patch.name.trim();
   if (patch.legajo !== undefined) data.legajo = patch.legajo?.trim() || null;
-  if (patch.zone !== undefined) data.zone = patch.zone?.trim() || null;
   if (patch.active !== undefined) {
     data.active = patch.active;
     if (patch.active) data.activationPending = false;
@@ -212,10 +242,26 @@ export async function updateUser(
     data.role = patch.role;
   }
 
+  if (
+    role === "permisionario" &&
+    (patch.parkingZoneId !== undefined || patch.zone !== undefined)
+  ) {
+    const assign = await resolveParkingZoneAssignment({
+      parkingZoneId: patch.parkingZoneId ?? existing.parkingZoneId,
+      zone: patch.zone ?? existing.zone,
+      required: true,
+    });
+    data.parkingZone = { connect: { id: assign.parkingZoneId! } };
+    data.zone = assign.zone;
+  } else if (patch.zone !== undefined && role !== "permisionario") {
+    data.zone = patch.zone?.trim() || null;
+    if (!patch.zone) data.parkingZone = { disconnect: true };
+  }
+
   const user = await prisma.user.update({
     where: { id },
     data,
-    include: { citizen: true },
+    include: userInclude,
   });
 
   return sanitizeUser(user);
@@ -228,7 +274,7 @@ export async function setPassword(id: string, password: string) {
   const user = await prisma.user.update({
     where: { id },
     data: { passwordHash: await bcrypt.hash(password, 10) },
-    include: { citizen: true },
+    include: userInclude,
   });
   return sanitizeUser(user);
 }

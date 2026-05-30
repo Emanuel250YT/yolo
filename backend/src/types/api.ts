@@ -4,11 +4,14 @@ export type { UserRole, VehicleType };
 
 export interface SafeUser {
   id: string;
+  ref: string | null;
   email: string;
   name: string;
   role: UserRole;
   legajo: string | null;
   zone: string | null;
+  parkingZoneId: string | null;
+  zoneName: string | null;
   active: boolean;
   activationPending: boolean;
   createdByMunicipio: boolean;

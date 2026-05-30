@@ -1,7 +1,11 @@
 import type {
   AdminOverview,
   AuthResponse,
+  ConductorVehicle,
+  DashboardStats,
   HistoryEntry,
+  ParkingAlert,
+  ParkingBlock,
   ParkingZone,
   Permit,
   QuotePayload,
@@ -12,9 +16,12 @@ import type {
   Session,
   ShiftStatus,
   Spot,
+  SpotHold,
+  Tariffs,
   TariffsResponse,
   User,
 } from "../types";
+import { getDevHeaders } from "../dev/devConfig";
 
 const BASE = import.meta.env.VITE_API_URL ?? "/api";
 const TOKEN_KEY = "sem_token";
@@ -57,6 +64,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...getDevHeaders(),
       ...init?.headers,
     },
   });
@@ -107,6 +115,39 @@ export const api = {
       `/municipio/users/${id}/activate`,
       { method: "PATCH" },
     ),
+  municipioDeactivateUser: (id: string) =>
+    request<{ user: User }>(`/municipio/users/${id}/deactivate`, {
+      method: "PATCH",
+    }),
+  municipioUpdateTariffs: (payload: Record<string, unknown>) =>
+    request<{ tariffs: Tariffs; message?: string }>(
+      "/municipio/tariffs",
+      { method: "PATCH", body: JSON.stringify(payload) },
+    ),
+  municipioDashboard: () => request<DashboardStats>("/municipio/dashboard"),
+  municipioParkingZones: () =>
+    request<{ zones: ParkingZone[] }>("/municipio/parking-zones"),
+  municipioParkingZone: (id: string) =>
+    request<{ zone: ParkingZone }>(`/municipio/parking-zones/${id}`),
+  municipioCreateParkingZone: (payload: Record<string, unknown>) =>
+    request<{ zone: ParkingZone }>("/municipio/parking-zones", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  municipioUpdateParkingZone: (id: string, payload: Record<string, unknown>) =>
+    request<{ zone: ParkingZone }>(`/municipio/parking-zones/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  municipioDeleteParkingZone: (id: string, force = false) =>
+    request<{ message: string }>(
+      `/municipio/parking-zones/${id}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  municipioParkingZoneDeleteCheck: (id: string) =>
+    request<{ blockers: string[]; canSafeDelete: boolean }>(
+      `/municipio/parking-zones/${id}/delete-check`,
+    ),
 
   tariffs: () => request<TariffsResponse>("/tariffs"),
   shiftStatus: () => request<ShiftStatus>("/shifts/status"),
@@ -118,6 +159,7 @@ export const api = {
 
   // Admin
   adminOverview: () => request<AdminOverview>("/admin/overview"),
+  adminDashboard: () => request<DashboardStats>("/admin/dashboard"),
   adminUsers: () => request<{ users: User[] }>("/admin/users"),
   adminCreateUser: (payload: Record<string, unknown>) =>
     request<{ user: User }>("/admin/users", {
@@ -151,9 +193,64 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  adminDeleteParkingZone: (id: string) =>
-    request<{ message: string }>(`/admin/parking-zones/${id}`, {
+  adminDeleteParkingZone: (id: string, force = false) =>
+    request<{ message: string }>(
+      `/admin/parking-zones/${id}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  adminParkingZoneDeleteCheck: (id: string) =>
+    request<{ blockers: string[]; canSafeDelete: boolean }>(
+      `/admin/parking-zones/${id}/delete-check`,
+    ),
+
+  adminBlocks: (zoneId?: string) =>
+    request<{ blocks: ParkingBlock[] }>(
+      `/admin/blocks${zoneId ? `?zoneId=${zoneId}` : ""}`,
+    ),
+  adminCreateBlock: (payload: Record<string, unknown>) =>
+    request<{ block: ParkingBlock }>("/admin/blocks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminCreateBlockSpotGrid: (
+    blockId: string,
+    payload: Record<string, unknown>,
+  ) =>
+    request<{ created: number }>(`/admin/blocks/${blockId}/spots-grid`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminDeleteBlock: (id: string) =>
+    request<{ message: string }>(`/admin/blocks/${id}`, {
       method: "DELETE",
+    }),
+  adminSpotsLive: () =>
+    request<{ spots: Spot[]; refreshedAt: string }>("/admin/spots/live"),
+  adminCreateSpotInZone: (
+    zoneId: string,
+    payload: { lat: number; lng: number; label?: string },
+  ) =>
+    request<{ spot: Spot }>(`/admin/parking-zones/${zoneId}/spots`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminCreateSpotAtPoint: (
+    blockId: string,
+    payload: { lat: number; lng: number; label?: string },
+  ) =>
+    request<{ spot: Spot }>(`/admin/blocks/${blockId}/spots`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminDeleteSpot: (id: string, force = false) =>
+    request<{ message: string }>(
+      `/admin/spots/${id}${force ? "?force=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  adminSetSpotOccupancy: (id: string, occupied: boolean) =>
+    request<{ spot: Spot }>(`/admin/spots/${id}/occupancy`, {
+      method: "PATCH",
+      body: JSON.stringify({ occupied }),
     }),
 
   // Permisionario
@@ -179,25 +276,90 @@ export const api = {
     ),
   permHistory: () =>
     request<{ history: HistoryEntry[] }>("/permisionario/history"),
+  permisionarioSpotsLive: (opts?: { blockId?: string; zone?: string }) => {
+    const q = new URLSearchParams();
+    if (opts?.blockId) q.set("blockId", opts.blockId);
+    if (opts?.zone) q.set("zone", opts.zone);
+    const qs = q.toString();
+    return request<{ spots: Spot[]; refreshedAt: string }>(
+      `/permisionario/spots/live${qs ? `?${qs}` : ""}`,
+    );
+  },
+  permisionarioSetSpotOccupancy: (id: string, occupied: boolean) =>
+    request<{ spot: Spot }>(`/permisionario/spots/${id}/occupancy`, {
+      method: "PATCH",
+      body: JSON.stringify({ occupied }),
+    }),
+  permisionarioZone: (id: string) =>
+    request<{ zone: ParkingZone }>(`/permisionario/zones/${id}`),
+  permisionarioBlocks: (zoneId?: string) =>
+    request<{ blocks: ParkingBlock[] }>(
+      `/permisionario/blocks${zoneId ? `?zoneId=${zoneId}` : ""}`,
+    ),
 
   // Conductor
   spots: (available = true) =>
     request<{ spots: Spot[] }>(
       `/conductor/spots?available=${available ? "true" : "false"}`,
     ),
+  spotsLive: (opts?: { blockId?: string; zone?: string }) => {
+    const q = new URLSearchParams();
+    if (opts?.blockId) q.set("blockId", opts.blockId);
+    if (opts?.zone) q.set("zone", opts.zone);
+    const qs = q.toString();
+    return request<{ spots: Spot[]; refreshedAt: string }>(
+      `/conductor/spots/live${qs ? `?${qs}` : ""}`,
+    );
+  },
+  conductorBlocks: (zoneId?: string) =>
+    request<{ blocks: ParkingBlock[] }>(
+      `/conductor/blocks${zoneId ? `?zoneId=${zoneId}` : ""}`,
+    ),
+  conductorZone: (id: string) =>
+    request<{ zone: ParkingZone }>(`/conductor/zones/${id}`),
+  conductorBlocksNearby: (lat: number, lng: number) =>
+    request<{ blocks: ParkingBlock[] }>(
+      `/conductor/blocks/nearby?lat=${lat}&lng=${lng}`,
+    ),
+  createSpotHold: (spotId: string, payload: Record<string, unknown>) =>
+    request<{ hold: SpotHold; paymentDeadlineMs: number }>(
+      `/conductor/spots/${spotId}/hold`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  getSpotHold: (holdId: string) =>
+    request<{ hold: SpotHold }>(`/conductor/holds/${holdId}`),
+  cancelSpotHold: (holdId: string) =>
+    request<{ message: string }>(`/conductor/holds/${holdId}`, {
+      method: "DELETE",
+    }),
+  paySpotHold: (holdId: string, paymentMethod: "cash" | "mercadopago") =>
+    request<{ reservation: Reservation; paymentMethod: string }>(
+      `/conductor/holds/${holdId}/pay`,
+      { method: "POST", body: JSON.stringify({ paymentMethod }) },
+    ),
   reservations: () =>
     request<{ reservations: Reservation[] }>("/conductor/reservations"),
-  createReservation: (payload: Record<string, unknown>) =>
-    request<{ reservation: Reservation }>("/conductor/reservations", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
   cancelReservation: (id: string) =>
     request<{ reservation: Reservation }>(`/conductor/reservations/${id}`, {
       method: "DELETE",
     }),
   conductorConfig: () =>
-    request<{ maxAdvanceMinutes: number }>("/conductor/config"),
+    request<{ maxAdvanceMinutes: number; holdPaymentMinutes: number }>(
+      "/conductor/config",
+    ),
+  conductorVehicles: () =>
+    request<{ vehicles: ConductorVehicle[] }>("/conductor/vehicles"),
+  conductorAddVehicle: (payload: Record<string, unknown>) =>
+    request<{ vehicle: ConductorVehicle }>("/conductor/vehicles", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  conductorDeleteVehicle: (id: string) =>
+    request<{ message: string }>(`/conductor/vehicles/${id}`, {
+      method: "DELETE",
+    }),
+  conductorParkingAlerts: () =>
+    request<{ alerts: ParkingAlert[] }>("/conductor/parking-alerts"),
 
   // Sessions (permisionario/admin)
   listSessions: () => request<{ sessions: Session[] }>("/sessions"),

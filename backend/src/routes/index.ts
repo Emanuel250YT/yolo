@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { SHIFTS, TARIFFS } from "../config/tariffs.js";
+import { SHIFTS } from "../config/tariffs.js";
 import { authenticate, optionalAuth, requireRole } from "../middleware/auth.js";
 import { calculateAmount } from "../services/pricing.js";
-import { getShiftStatus } from "../services/shifts.js";
+import { getShiftStatusWithDevOverride } from "../services/devShiftOverride.js";
+import { getTariffs } from "../store/tariffs.js";
 import {
   checkoutSession,
   createSession,
@@ -28,27 +29,32 @@ router.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "sem-backend", version: "0.3.0" });
 });
 
-router.get("/tariffs", (_req, res) => {
-  res.json({ tariffs: TARIFFS, shifts: SHIFTS });
+router.get("/tariffs", async (_req, res) => {
+  const tariffs = await getTariffs();
+  res.json({ tariffs, shifts: SHIFTS });
 });
 
-router.get("/shifts/status", (_req, res) => {
-  res.json(getShiftStatus());
+router.get("/shifts/status", (req, res) => {
+  const override = req.header("X-Dev-Shift") ?? undefined;
+  res.json(getShiftStatusWithDevOverride(override));
 });
 
-router.get("/parking-zones", authenticate, async (_req, res) => {
-  res.json({ zones: await listParkingZones() });
+router.get("/parking-zones", async (_req, res) => {
+  const zones = await listParkingZones();
+  res.json({ zones: zones.filter((z) => z.enabled) });
 });
 
-router.post("/quote", optionalAuth, (req, res) => {
+router.post("/quote", optionalAuth, async (req, res) => {
   const { vehicleType, minutes, digitalPayment, plate } = req.body ?? {};
   if (minutes == null || Number.isNaN(Number(minutes))) {
     return res.status(400).json({ error: "minutes es obligatorio (número)." });
   }
+  const tariffs = await getTariffs();
   const quote = calculateAmount({
     vehicleType: vehicleType === "motorcycle" ? "motorcycle" : "auto",
     minutes: Number(minutes),
     digitalPayment: Boolean(digitalPayment),
+    tariffs,
   });
   res.json({
     plate: plate ?? null,
@@ -73,7 +79,7 @@ router.get("/sessions", authenticate, async (req, res) => {
 router.post(
   "/sessions",
   authenticate,
-  requireRole("admin", "permisionario"),
+  requireRole("admin", "permisionario", "municipio"),
   async (req, res) => {
     try {
       const session = await createSession({
@@ -100,7 +106,7 @@ router.get("/sessions/:id", authenticate, async (req, res) => {
 router.post(
   "/sessions/:id/checkout",
   authenticate,
-  requireRole("admin", "permisionario"),
+  requireRole("admin", "permisionario", "municipio"),
   async (req, res) => {
     try {
       const session = await checkoutSession(String(req.params.id), req.body ?? {});

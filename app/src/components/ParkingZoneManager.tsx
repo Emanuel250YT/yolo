@@ -1,153 +1,154 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import { ConfirmModal } from "./ConfirmModal";
+import { DataTable, RefCell, TableActions } from "./DataTable";
+import { ZoneBoundaryMap } from "./ZoneBoundaryMap";
+import { ZonesMap } from "./ZonesMap";
+import { useConfirmModal } from "../hooks/useConfirmModal";
+import { formatRef } from "../utils/formatRef";
+import type { EntityNavTarget } from "../utils/entityNav";
 import type { ParkingPolygon, ParkingZone } from "../types";
 
 const EMPTY_FORM = {
   code: "",
   name: "",
+  region: "Centro",
   description: "",
 };
 
-export function ParkingZoneManager() {
+type ViewMode = "list" | "edit";
+type ApiMode = "admin" | "municipio";
+
+interface ParkingZoneManagerProps {
+  apiMode?: ApiMode;
+  initialView?: ViewMode;
+  navTarget?: EntityNavTarget | null;
+  onNavHandled?: () => void;
+}
+
+function zoneApi(mode: ApiMode) {
+  if (mode === "municipio") {
+    return {
+      list: () => api.municipioParkingZones(),
+      get: (id: string) => api.municipioParkingZone(id),
+      create: (p: Record<string, unknown>) => api.municipioCreateParkingZone(p),
+      update: (id: string, p: Record<string, unknown>) =>
+        api.municipioUpdateParkingZone(id, p),
+      delete: (id: string, force?: boolean) =>
+        api.municipioDeleteParkingZone(id, force),
+      deleteCheck: (id: string) => api.municipioParkingZoneDeleteCheck(id),
+    };
+  }
+  return {
+    list: () => api.adminParkingZones(),
+    get: (id: string) => api.adminParkingZone(id),
+    create: (p: Record<string, unknown>) => api.adminCreateParkingZone(p),
+    update: (id: string, p: Record<string, unknown>) =>
+      api.adminUpdateParkingZone(id, p),
+      delete: (id: string, force?: boolean) => api.adminDeleteParkingZone(id, force),
+      deleteCheck: (id: string) => api.adminParkingZoneDeleteCheck(id),
+  };
+}
+
+export function ParkingZoneManager({
+  apiMode = "admin",
+  initialView = "list",
+  navTarget,
+  onNavHandled,
+}: ParkingZoneManagerProps) {
+  const zonesApi = useMemo(() => zoneApi(apiMode), [apiMode]);
+  const [view, setView] = useState<ViewMode>(initialView);
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [polygons, setPolygons] = useState<ParkingPolygon[]>([]);
-  const [currentPoints, setCurrentPoints] = useState<[number, number][]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ w: 0, h: 0 });
   const [enabled, setEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
+  const { modal, confirm, confirmDanger } = useConfirmModal();
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const { zones: z } = await api.adminParkingZones();
+      const { zones: z } = await zonesApi.list();
       setZones(z);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar zonas");
     }
-  }, []);
+  }, [zonesApi]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const drawCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img || !imageSrc) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const scaleY = img.naturalHeight / rect.height;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const toCanvas = (x: number, y: number) => ({
-      x: x / scaleX,
-      y: y / scaleY,
-    });
-
-    ctx.lineWidth = 2;
-    polygons.forEach((poly, i) => {
-      if (!poly.points.length) return;
-      ctx.strokeStyle = i % 2 === 0 ? "#015cb4" : "#0d9488";
-      ctx.fillStyle = i % 2 === 0 ? "rgba(1, 92, 180, 0.2)" : "rgba(13, 148, 136, 0.2)";
-      ctx.beginPath();
-      poly.points.forEach(([x, y], idx) => {
-        const p = toCanvas(x, y);
-        if (idx === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      });
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    });
-
-    if (currentPoints.length) {
-      ctx.strokeStyle = "#dc2626";
-      ctx.fillStyle = "rgba(220, 38, 38, 0.25)";
-      ctx.beginPath();
-      currentPoints.forEach(([x, y], idx) => {
-        const p = toCanvas(x, y);
-        if (idx === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      });
-      if (currentPoints.length >= 3) ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      currentPoints.forEach(([x, y]) => {
-        const p = toCanvas(x, y);
-        ctx.fillStyle = "#dc2626";
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-        ctx.fill();
-      });
-    }
-  }, [imageSrc, polygons, currentPoints]);
-
-  useEffect(() => {
-    drawCanvas();
-  }, [drawCanvas]);
-
-  useEffect(() => {
-    if (!imageSrc) return;
-    const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const maxW = Math.min(640, canvas.parentElement?.clientWidth ?? 640);
-      const h = Math.round(maxW * (img.naturalHeight / img.naturalWidth));
-      canvas.width = maxW;
-      canvas.height = h;
-      setImageSize({ w: img.naturalWidth, h: img.naturalHeight });
-      requestAnimationFrame(drawCanvas);
-    };
-    img.src = imageSrc;
-  }, [imageSrc, drawCanvas]);
+  const otherZones = useMemo(
+    () => zones.filter((z) => z.id !== selectedId),
+    [zones, selectedId],
+  );
 
   function resetEditor() {
     setSelectedId(null);
     setForm(EMPTY_FORM);
     setPolygons([]);
-    setCurrentPoints([]);
     setImageSrc(null);
     setImageSize({ w: 0, h: 0 });
     setEnabled(true);
-    imgRef.current = null;
+  }
+
+  function startNewZone() {
+    resetEditor();
+    setView("edit");
+  }
+
+  function backToList() {
+    resetEditor();
+    setView("list");
   }
 
   async function openZone(id: string) {
     try {
-      const { zone } = await api.adminParkingZone(id);
+      const { zone } = await zonesApi.get(id);
       setSelectedId(zone.id);
       setForm({
         code: zone.code,
         name: zone.name,
+        region: zone.region ?? "Centro",
         description: zone.description,
       });
-      setPolygons(zone.polygons);
+      setPolygons(zone.polygons ?? []);
       setEnabled(zone.enabled);
-      setCurrentPoints([]);
       if (zone.imageBase64 && zone.imageMimeType) {
         setImageSrc(`data:${zone.imageMimeType};base64,${zone.imageBase64}`);
+        setImageSize({
+          w: zone.imageWidth ?? 0,
+          h: zone.imageHeight ?? 0,
+        });
       } else {
         setImageSrc(null);
-        imgRef.current = null;
+        setImageSize({ w: 0, h: 0 });
       }
+      setView("edit");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     }
   }
+
+  useEffect(() => {
+    if (!navTarget || navTarget.kind !== "zone") return;
+    const z =
+      zones.find(
+        (x) =>
+          formatRef(x) === navTarget.ref ||
+          x.id === navTarget.id ||
+          x.id === navTarget.ref,
+      ) ?? null;
+    if (z) {
+      void openZone(z.id);
+      onNavHandled?.();
+    }
+  }, [navTarget, zones, onNavHandled]);
 
   function onImageFile(file: File) {
     const reader = new FileReader();
@@ -155,7 +156,6 @@ export function ParkingZoneManager() {
       const src = reader.result as string;
       const img = new Image();
       img.onload = () => {
-        imgRef.current = img;
         setImageSrc(src);
         setImageSize({ w: img.naturalWidth, h: img.naturalHeight });
       };
@@ -164,45 +164,19 @@ export function ParkingZoneManager() {
     reader.readAsDataURL(file);
   }
 
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const scaleY = img.naturalHeight / rect.height;
-    const x = Math.round((e.clientX - rect.left) * scaleX);
-    const y = Math.round((e.clientY - rect.top) * scaleY);
-    setCurrentPoints((pts) => [...pts, [x, y]]);
-  }
-
-  function finishPolygon() {
-    if (currentPoints.length < 3) {
-      setError("Marcá al menos 3 puntos para cerrar el polígono.");
-      return;
-    }
-    setPolygons((p) => [...p, { points: currentPoints }]);
-    setCurrentPoints([]);
-    setError(null);
-  }
-
-  function undoPoint() {
-    setCurrentPoints((pts) => pts.slice(0, -1));
-  }
-
-  function removePolygon(index: number) {
-    setPolygons((p) => p.filter((_, i) => i !== index));
-  }
-
   async function saveZone(e: React.FormEvent) {
     e.preventDefault();
+    if (!polygons.some((p) => p.points.length >= 3)) {
+      setError("Delimitá la zona en el mapa (mínimo 3 puntos).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const payload: Record<string, unknown> = {
         code: form.code,
         name: form.name,
+        region: form.region,
         description: form.description,
         polygons,
         enabled,
@@ -214,12 +188,12 @@ export function ParkingZoneManager() {
       }
 
       if (selectedId) {
-        await api.adminUpdateParkingZone(selectedId, payload);
+        await zonesApi.update(selectedId, payload);
       } else {
-        const { zone } = await api.adminCreateParkingZone(payload);
-        setSelectedId(zone.id);
+        await zonesApi.create(payload);
       }
       await load();
+      backToList();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar");
     } finally {
@@ -227,52 +201,57 @@ export function ParkingZoneManager() {
     }
   }
 
-  async function deleteZone() {
-    if (!selectedId || !confirm("¿Eliminar esta zona de parking?")) return;
+  async function deleteZone(id: string, name: string) {
+    const ok = await confirm({
+      title: "Eliminar zona",
+      message: `¿Eliminar la zona «${name}»? Se desvincularán permisionarios y se cerrarán permisos y reservas activas en esta zona.`,
+      confirmLabel: "Eliminar zona",
+    });
+    if (!ok) return;
+
     try {
-      await api.adminDeleteParkingZone(selectedId);
-      resetEditor();
-      load();
+      await zonesApi.delete(id);
+      if (selectedId === id) backToList();
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      await confirmDanger({
+        title: "Error al eliminar",
+        message: err instanceof Error ? err.message : "Error al eliminar la zona.",
+        confirmLabel: "Entendido",
+        showCancel: false,
+      });
     }
   }
 
-  return (
-    <div className="zone-manager">
-      {error && <p className="form-error banner-error">{error}</p>}
+  if (view === "edit") {
+    return (
+      <div className="zone-manager zone-manager--edit">
+        {modal && (
+          <ConfirmModal
+            open
+            title={modal.title}
+            message={modal.message}
+            variant={modal.variant}
+            confirmLabel={modal.confirmLabel}
+            cancelLabel={modal.cancelLabel}
+            showCancel={modal.showCancel}
+            onConfirm={modal.onConfirm}
+            onCancel={modal.onCancel}
+          />
+        )}
+        {error && <p className="form-error banner-error">{error}</p>}
 
-      <div className="split-panel zone-split">
-        <section className="panel">
-          <div className="row-between">
-            <h2>Zonas ({zones.length})</h2>
-            <button type="button" className="btn-small" onClick={resetEditor}>
-              Nueva
-            </button>
-          </div>
-          <div className="card-list">
-            {zones.map((z) => (
-              <button
-                key={z.id}
-                type="button"
-                className={`list-card clickable ${selectedId === z.id ? "selected" : ""}`}
-                onClick={() => openZone(z.id)}
-              >
-                <strong>{z.name}</strong>
-                <span className="chip">{z.code}</span>
-                <p className="meta">
-                  {z.slotCount} espacios · {z.hasImage ? "con imagen" : "sin imagen"}
-                </p>
-              </button>
-            ))}
-          </div>
-        </section>
+        <header className="zone-editor-head">
+          <button type="button" className="btn-small" onClick={backToList}>
+            ← Volver al listado
+          </button>
+          <h2>{selectedId ? "Editar zona" : "Nueva zona"}</h2>
+        </header>
 
         <section className="panel">
-          <h2>{selectedId ? "Editar zona" : "Nueva zona de parking"}</h2>
           <p className="panel-desc">
-            Subí la imagen de referencia y marcá polígonos (formato compatible con
-            PyTorch / Ultralytics: lista de puntos por espacio).
+            Delimitá el sector en el mapa haciendo clic en las esquinas de la
+            cuadra. Opcionalmente subí una imagen de referencia.
           </p>
 
           <form className="form-grid" onSubmit={saveZone}>
@@ -299,6 +278,22 @@ export function ParkingZoneManager() {
                   }
                 />
               </label>
+              <label>
+                Región *
+                <select
+                  required
+                  value={form.region}
+                  onChange={(e) =>
+                    setForm({ ...form, region: e.target.value })
+                  }
+                >
+                  {["Centro", "Norte", "Sur", "Este", "Oeste"].map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <label>
               Descripción
@@ -309,8 +304,19 @@ export function ParkingZoneManager() {
                 }
               />
             </label>
+
+            <ZoneBoundaryMap
+              polygons={polygons}
+              onPolygonsChange={setPolygons}
+              otherZones={otherZones}
+              referenceImageUrl={imageSrc}
+              editable
+              height={480}
+              hint="Clic en el mapa para marcar vértices del polígono. Usá «Cerrar polígono» cuando termines."
+            />
+
             <label>
-              Imagen de referencia
+              Imagen de referencia (opcional)
               <input
                 type="file"
                 accept="image/*"
@@ -320,6 +326,11 @@ export function ParkingZoneManager() {
                 }}
               />
             </label>
+            {imageSrc && (
+              <div className="zone-image-preview">
+                <img src={imageSrc} alt="Vista previa zona" />
+              </div>
+            )}
             <label className="checkbox-inline">
               <input
                 type="checkbox"
@@ -328,51 +339,6 @@ export function ParkingZoneManager() {
               />
               Zona habilitada
             </label>
-
-            {imageSrc && (
-              <div className="zone-canvas-wrap">
-                <p className="zone-hint">
-                  Clic en la imagen para agregar vértices. Cerrá cada espacio con
-                  el botón inferior.
-                </p>
-                <div className="zone-toolbar">
-                  <button
-                    type="button"
-                    className="btn-small"
-                    onClick={finishPolygon}
-                  >
-                    Cerrar polígono ({currentPoints.length} pts)
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-small btn-ghost"
-                    onClick={undoPoint}
-                    disabled={!currentPoints.length}
-                  >
-                    Deshacer punto
-                  </button>
-                </div>
-                <canvas
-                  ref={canvasRef}
-                  className="zone-canvas"
-                  onClick={handleCanvasClick}
-                />
-                <ul className="zone-poly-list">
-                  {polygons.map((poly, i) => (
-                    <li key={i}>
-                      Espacio {i + 1}: {poly.points.length} puntos
-                      <button
-                        type="button"
-                        className="btn-small btn-danger"
-                        onClick={() => removePolygon(i)}
-                      >
-                        Quitar
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
 
             <div className="form-actions-row">
               <button
@@ -386,7 +352,10 @@ export function ParkingZoneManager() {
                 <button
                   type="button"
                   className="btn-small btn-danger"
-                  onClick={deleteZone}
+                  onClick={() => {
+                    const z = zones.find((x) => x.id === selectedId);
+                    if (z) deleteZone(selectedId, z.name);
+                  }}
                 >
                   Eliminar
                 </button>
@@ -395,6 +364,133 @@ export function ParkingZoneManager() {
           </form>
         </section>
       </div>
+    );
+  }
+
+  return (
+    <div className="zone-manager">
+      {modal && (
+        <ConfirmModal
+          open
+          title={modal.title}
+          message={modal.message}
+          variant={modal.variant}
+          confirmLabel={modal.confirmLabel}
+          cancelLabel={modal.cancelLabel}
+          showCancel={modal.showCancel}
+          onConfirm={modal.onConfirm}
+          onCancel={modal.onCancel}
+        />
+      )}
+      {error && <p className="form-error banner-error">{error}</p>}
+
+      <section className="panel">
+        <h2>Mapa de zonas</h2>
+        <p className="panel-desc">
+          Vista general de todas las zonas delimitadas. Los colores indican
+          ocupación según plazas registradas.
+        </p>
+        <ZonesMap spots={[]} zones={zones} height={320} />
+      </section>
+
+      <section className="panel">
+        <div className="row-between">
+          <h2>Catálogo de zonas ({zones.length})</h2>
+          <button type="button" className="btn-primary btn-small" onClick={startNewZone}>
+            + Nueva zona
+          </button>
+        </div>
+
+        <DataTable
+          rows={zones}
+          rowKey={(z) => z.id}
+          searchPlaceholder="Buscar por ID, nombre o código…"
+          emptyMessage="No hay zonas. Creá la primera con el botón superior."
+          filters={[
+            {
+              key: "enabled",
+              label: "Estado",
+              options: [
+                { value: "true", label: "Habilitada" },
+                { value: "false", label: "Inactiva" },
+              ],
+            },
+          ]}
+          columns={[
+            {
+              key: "ref",
+              header: "ID",
+              searchValues: (z) => [z.ref, z.id],
+              render: (z) => <RefCell refId={formatRef(z)} entityKind="zone" />,
+            },
+            {
+              key: "name",
+              header: "Nombre",
+              searchValues: (z) => [z.name, z.code, z.region],
+              render: (z) => z.name,
+            },
+            {
+              key: "code",
+              header: "Código",
+              searchValues: (z) => [z.code],
+              render: (z) => <span className="chip">{z.code}</span>,
+            },
+            {
+              key: "region",
+              header: "Región",
+              searchValues: (z) => [z.region],
+              render: (z) => z.region ?? "Centro",
+            },
+            {
+              key: "map",
+              header: "Mapa",
+              render: (z) =>
+                z.polygons.some((p) => p.points.length >= 3) ? "Sí" : "No",
+            },
+            {
+              key: "image",
+              header: "Imagen",
+              render: (z) => (z.hasImage ? "Sí" : "No"),
+            },
+            {
+              key: "enabled",
+              header: "Estado",
+              filterKey: "enabled",
+              searchValues: (z) => [String(z.enabled)],
+              render: (z) => (z.enabled ? "Habilitada" : "Inactiva"),
+            },
+            {
+              key: "actions",
+              header: "Acciones",
+              render: (z) => (
+                <TableActions>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    onClick={() => openZone(z.id)}
+                  >
+                    Ver
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small"
+                    onClick={() => openZone(z.id)}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small btn-danger"
+                    onClick={() => deleteZone(z.id, z.name)}
+                  >
+                    Eliminar
+                  </button>
+                </TableActions>
+              ),
+            },
+          ]}
+        />
+      </section>
     </div>
   );
 }

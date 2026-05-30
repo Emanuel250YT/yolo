@@ -1,50 +1,102 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSubmitLock } from "../hooks/useSubmitLock";
 import { api } from "../api/client";
-import { ParkPanel } from "./ParkPanel";
+import { useAuth } from "../auth/AuthContext";
+import { useDevTools } from "../dev/DevToolsContext";
+import { DataTable, RefCell, TableActions } from "./DataTable";
+import { OutOfHoursNotice } from "./OutOfHoursNotice";
+import { PermisionarioSpotPanel } from "./PermisionarioSpotPanel";
+import { PriceCard } from "./PriceCard";
+import { SearchableSelect } from "./SearchableSelect";
 import { ShiftBanner } from "./ShiftBanner";
-import type { HistoryEntry, ParkingZone, Permit, User } from "../types";
+import {
+  zoneCodeForUser,
+  zoneLabel,
+  zoneOptionsForPermit,
+} from "../utils/zoneDefaults";
+import { zoneCodeOptions } from "../utils/selectOptions";
+import { formatRef } from "../utils/formatRef";
+import type { EntityNavTarget } from "../utils/entityNav";
+import type {
+  HistoryEntry,
+  ParkingZone,
+  Permit,
+  PricingBreakdown,
+  QuoteResult,
+  Tariffs,
+  UserRole,
+} from "../types";
 
 interface PermisionarioPanelProps {
-  isAdmin?: boolean;
-  permisionarios?: User[];
   activeTab: string;
+  onTabChange?: (tab: string) => void;
+  navTarget?: EntityNavTarget | null;
+  onNavHandled?: () => void;
 }
 
+const ROLE_LABELS: Record<UserRole, string> = {
+  municipio: "Municipalidad",
+  admin: "Administrador",
+  permisionario: "Permisionario",
+  conductor: "Conductor",
+};
+
+const HOUR_OPTIONS = Array.from({ length: 23 }, (_, i) => i + 1);
+
 export function PermisionarioPanel({
-  isAdmin = false,
-  permisionarios = [],
   activeTab,
+  onTabChange,
+  navTarget,
+  onNavHandled,
 }: PermisionarioPanelProps) {
+  const { user } = useAuth();
+  const { refreshKey } = useDevTools();
   const [permits, setPermits] = useState<Permit[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [tariffs, setTariffs] = useState<Tariffs | null>(null);
   const [shift, setShift] = useState<Awaited<
     ReturnType<typeof api.shiftStatus>
   > | null>(null);
   const [selected, setSelected] = useState<Permit | null>(null);
   const [observation, setObservation] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { busy: submitting, run: runSubmit } = useSubmitLock();
+  const { busy: savingObs, run: runObs } = useSubmitLock();
 
   const [form, setForm] = useState({
     plate: "",
-    zone: "microcentro",
+    zone: "",
     vehicleType: "auto" as "auto" | "motorcycle",
     notes: "",
-    permisionarioId: "",
+    hours: 1,
   });
+
+  const [cashQuote, setCashQuote] = useState<QuoteResult | null>(null);
+  const [mpQuote, setMpQuote] = useState<QuoteResult | null>(null);
+
+  const isStaff = user?.role === "admin" || user?.role === "municipio";
+  const canPickZone = isStaff;
+
+  const assignedCode = useMemo(
+    () => zoneCodeForUser(user, zones),
+    [user, zones],
+  );
 
   const load = useCallback(async () => {
     try {
-      const [p, h, s, z] = await Promise.all([
+      const [p, h, s, z, t] = await Promise.all([
         api.permits(),
         api.permHistory(),
         api.shiftStatus(),
-        api.parkingZones().catch(() => ({ zones: [] as ParkingZone[] })),
+        api.parkingZones(),
+        api.tariffs(),
       ]);
       setPermits(p.permits);
       setHistory(h.history);
       setShift(s);
-      setZones(z.zones.filter((x) => x.enabled));
+      setZones(z.zones);
+      setTariffs(t.tariffs);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     }
@@ -52,62 +104,135 @@ export function PermisionarioPanel({
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   useEffect(() => {
-    if (isAdmin && permisionarios.length) {
-      setForm((f) =>
-        f.permisionarioId
-          ? f
-          : { ...f, permisionarioId: permisionarios[0].id },
-      );
-    }
-  }, [isAdmin, permisionarios]);
-
-  const zoneOptions = [
-    ...zones.map((z) => ({ value: z.code, label: z.name })),
-    ...(zones.some((z) => z.code === form.zone)
-      ? []
-      : [{ value: form.zone, label: form.zone }]),
-  ];
-
-  async function createPermit(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      const payload: Record<string, unknown> = {
-        plate: form.plate,
-        zone: form.zone,
-        vehicleType: form.vehicleType,
-        notes: form.notes,
-      };
-      if (isAdmin) {
-        payload.permisionarioId = form.permisionarioId;
+    if (!navTarget) return;
+    if (navTarget.kind === "permit") {
+      const p =
+        permits.find(
+          (x) =>
+            formatRef(x) === navTarget.ref ||
+            x.id === navTarget.id ||
+            x.id === navTarget.ref,
+        ) ?? null;
+      if (p) {
+        setSelected(p);
+        onNavHandled?.();
       }
-      await api.createPermit(payload);
-      setForm({
-        plate: "",
-        zone: zones[0]?.code ?? "microcentro",
-        vehicleType: "auto",
-        notes: "",
-        permisionarioId: permisionarios[0]?.id ?? form.permisionarioId,
-      });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      return;
     }
+    if (navTarget.kind === "user" && isStaff) {
+      const match = permits.find((x) => x.permisionarioRef === navTarget.ref);
+      if (match) {
+        setSelected(match);
+        onNavHandled?.();
+      }
+    }
+  }, [navTarget, permits, isStaff, onNavHandled]);
+
+  useEffect(() => {
+    if (!zones.length && !assignedCode) return;
+    setForm((f) => ({ ...f, zone: assignedCode || zones[0]?.code || "" }));
+  }, [assignedCode, zones]);
+
+  const minutes = form.hours * 60;
+
+  useEffect(() => {
+    if (activeTab !== "nuevo") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [cash, mp] = await Promise.all([
+          api.quote({
+            vehicleType: form.vehicleType,
+            minutes,
+            digitalPayment: false,
+            plate: form.plate || undefined,
+          }),
+          api.quote({
+            vehicleType: form.vehicleType,
+            minutes,
+            digitalPayment: true,
+            plate: form.plate || undefined,
+          }),
+        ]);
+        if (!cancelled) {
+          setCashQuote(cash);
+          setMpQuote(mp);
+        }
+      } catch {
+        if (!cancelled) {
+          setCashQuote(null);
+          setMpQuote(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, form.vehicleType, form.hours, form.plate, minutes]);
+
+  const permitZoneOptions = zoneOptionsForPermit(
+    zones,
+    assignedCode,
+    canPickZone,
+  );
+
+  const permitZoneSelectOpts = useMemo(
+    () => zoneCodeOptions(zones, permitZoneOptions),
+    [zones, permitZoneOptions],
+  );
+
+  const showZonePicker = canPickZone && permitZoneSelectOpts.length > 1;
+
+  const assignedZoneName =
+    user?.zoneName ||
+    zoneLabel(form.zone || assignedCode, zones) ||
+    assignedCode;
+
+  async function createPermit(paymentMethod: "cash" | "mercadopago") {
+    if (!form.plate.trim()) {
+      setError("La patente es obligatoria.");
+      return;
+    }
+    await runSubmit(async () => {
+      setError(null);
+      try {
+        await api.createPermit({
+          plate: form.plate,
+          zone: form.zone || assignedCode,
+          vehicleType: form.vehicleType,
+          notes: form.notes,
+          durationMinutes: minutes,
+          paymentMethod,
+        });
+        setForm((f) => ({
+          ...f,
+          plate: "",
+          notes: "",
+          zone: assignedCode,
+        }));
+        await load();
+        onTabChange?.("permisos");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error");
+      }
+    });
   }
 
   async function saveObservation() {
     if (!selected || !observation.trim()) return;
-    try {
-      await api.addObservation(selected.id, observation);
-      setObservation("");
-      load();
-      const { history: h } = await api.permitHistory(selected.id);
-      setHistory(h);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    }
+    await runObs(async () => {
+      try {
+        await api.addObservation(selected.id, observation);
+        setObservation("");
+        setSelected(null);
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Error");
+      }
+    });
   }
 
   async function partialUpdate(field: string, value: string) {
@@ -123,33 +248,110 @@ export function PermisionarioPanel({
     }
   }
 
+  const editZoneOptions = selected
+    ? zoneOptionsForPermit(
+        zones,
+        isStaff ? selected.zone : assignedCode,
+        canPickZone,
+      )
+    : [];
+
+  const editZoneSelectOpts = useMemo(
+    () => zoneCodeOptions(zones, editZoneOptions),
+    [zones, editZoneOptions],
+  );
+
+  const ratePerHour =
+    form.vehicleType === "motorcycle"
+      ? tariffs?.motorcyclePerHour
+      : tariffs?.autoPerHour;
+
   return (
     <>
-      <ShiftBanner shift={shift} tariffs={null} />
+      {activeTab !== "nuevo" && (
+        <ShiftBanner shift={shift} tariffs={tariffs} />
+      )}
       {error && <p className="form-error banner-error">{error}</p>}
 
       {activeTab === "nuevo" && (
         <section className="panel">
           <h2>Crear permiso de estacionamiento</h2>
-          <form className="form-grid" onSubmit={createPermit}>
-            {isAdmin && (
-              <label>
-                Permisionario *
-                <select
-                  required
-                  value={form.permisionarioId}
-                  onChange={(e) =>
-                    setForm({ ...form, permisionarioId: e.target.value })
-                  }
-                >
-                  {permisionarios.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} · Leg. {u.legajo ?? "—"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+
+          {shift?.canCharge === false ? (
+            <OutOfHoursNotice
+              shift={shift}
+              tariffs={tariffs}
+              title="No se pueden efectuar cobros en este horario"
+            />
+          ) : (
+            <>
+              {user && tariffs && ratePerHour != null && (
+                <div className="permit-summary-card">
+              <div className="permit-summary-row">
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Operador</span>
+                  <strong>{user.name}</strong>
+                  <span className="permit-summary-meta">
+                    {ROLE_LABELS[user.role]}
+                    {user.legajo ? ` · Leg. ${user.legajo}` : ""}
+                  </span>
+                </div>
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Zona asignada</span>
+                  <strong>{assignedZoneName}</strong>
+                </div>
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Cobro</span>
+                  <strong
+                    className={
+                      shift?.canCharge ? "permit-cobro-ok" : "permit-cobro-off"
+                    }
+                  >
+                    {shift?.canCharge ? "Habilitado" : "No habilitado"}
+                  </strong>
+                  {shift?.message && (
+                    <span className="permit-summary-meta">{shift.message}</span>
+                  )}
+                </div>
+                <div className="permit-summary-item">
+                  <span className="permit-summary-label">Tarifa vigente</span>
+                  <strong>
+                    ${ratePerHour.toLocaleString("es-AR")}/h
+                  </strong>
+                  <span className="permit-summary-meta">
+                    {form.vehicleType === "motorcycle"
+                      ? "Motocicleta"
+                      : "Automóvil"}{" "}
+                    · {form.hours}{" "}
+                    {form.hours === 1 ? "hora" : "horas"}
+                  </span>
+                </div>
+                {cashQuote && (
+                  <div className="permit-summary-item permit-summary-cobro">
+                    <span className="permit-summary-label">Cobro estimado</span>
+                    <strong className="permit-summary-amount">
+                      ${cashQuote.net.toLocaleString("es-AR")}
+                    </strong>
+                    <span className="permit-summary-meta">
+                      Efectivo
+                      {mpQuote && mpQuote.digitalDiscount > 0
+                        ? ` · MP $${mpQuote.net.toLocaleString("es-AR")}`
+                        : ""}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <p className="permit-summary-foot">
+                Tolerancia {tariffs.toleranceMinutes} min · Fracción{" "}
+                {tariffs.fractionMinutes} min
+              </p>
+            </div>
+          )}
+
+          <form
+            className="form-grid"
+            onSubmit={(e) => e.preventDefault()}
+          >
             <label>
               Patente *
               <input
@@ -160,19 +362,16 @@ export function PermisionarioPanel({
                 }
               />
             </label>
-            <label>
-              Zona
-              <select
-                value={form.zone}
-                onChange={(e) => setForm({ ...form, zone: e.target.value })}
-              >
-                {zoneOptions.map((z) => (
-                  <option key={z.value} value={z.value}>
-                    {z.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {showZonePicker && (
+              <label>
+                Zona
+                <SearchableSelect
+                  value={form.zone}
+                  onChange={(v) => setForm({ ...form, zone: v })}
+                  options={permitZoneSelectOpts}
+                />
+              </label>
+            )}
             <label>
               Vehículo
               <select
@@ -184,8 +383,27 @@ export function PermisionarioPanel({
                   })
                 }
               >
-                <option value="auto">Automóvil</option>
-                <option value="motorcycle">Motocicleta</option>
+                <option value="auto">
+                  Automóvil (${tariffs?.autoPerHour ?? 700}/h)
+                </option>
+                <option value="motorcycle">
+                  Motocicleta (${tariffs?.motorcyclePerHour ?? 300}/h)
+                </option>
+              </select>
+            </label>
+            <label>
+              Horas de estadía *
+              <select
+                value={form.hours}
+                onChange={(e) =>
+                  setForm({ ...form, hours: Number(e.target.value) })
+                }
+              >
+                {HOUR_OPTIONS.map((h) => (
+                  <option key={h} value={h}>
+                    {h} {h === 1 ? "hora" : "horas"}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -196,39 +414,166 @@ export function PermisionarioPanel({
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
               />
             </label>
-            <button type="submit" className="btn-primary">
-              Registrar permiso
-            </button>
           </form>
+
+          <div className="action-buttons permit-pay-actions">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={submitting || !form.plate.trim()}
+              onClick={() => createPermit("cash")}
+            >
+              {submitting ? "Registrando…" : "Registrar pago en efectivo"}
+            </button>
+            <button
+              type="button"
+              className="btn-mp"
+              disabled={submitting || !form.plate.trim()}
+              onClick={() => createPermit("mercadopago")}
+              title="Integración MercadoPago pendiente"
+            >
+              MercadoPago
+            </button>
+          </div>
+            </>
+          )}
         </section>
       )}
 
       {activeTab === "permisos" && (
         <div className="split-panel">
           <section className="panel">
-            <h2>{isAdmin ? "Permisos" : "Mis permisos"} ({permits.length})</h2>
-            <div className="card-list">
-              {permits.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`list-card clickable ${selected?.id === p.id ? "selected" : ""}`}
-                  onClick={() => setSelected(p)}
-                >
-                  <strong>{p.plate}</strong>
-                  <span className="chip">{p.status}</span>
-                  {isAdmin && (
-                    <p className="meta">{p.permisionarioName}</p>
-                  )}
-                  <p className="meta">{p.zone}</p>
-                </button>
-              ))}
-            </div>
+            <h2>{isStaff ? "Permisos" : "Mis permisos"}</h2>
+            <DataTable
+              rows={permits}
+              rowKey={(p) => p.id}
+              selectedKey={selected?.id ?? null}
+              searchPlaceholder="Buscar por ID, patente, zona…"
+              filters={[
+                {
+                  key: "status",
+                  label: "Estado",
+                  options: [
+                    { value: "active", label: "Activo" },
+                    { value: "completed", label: "Completado" },
+                    { value: "cancelled", label: "Cancelado" },
+                  ],
+                },
+              ]}
+              columns={[
+                {
+                  key: "ref",
+                  header: "ID",
+                  searchValues: (p) => [p.ref, p.id, p.plate],
+                  render: (p) => (
+                    <RefCell refId={formatRef(p)} entityKind="permit" />
+                  ),
+                },
+                {
+                  key: "plate",
+                  header: "Patente",
+                  searchValues: (p) => [p.plate],
+                  render: (p) => <strong>{p.plate}</strong>,
+                },
+                {
+                  key: "status",
+                  header: "Estado",
+                  filterKey: "status",
+                  searchValues: (p) => [p.status],
+                  render: (p) => <span className="chip">{p.status}</span>,
+                },
+                {
+                  key: "zone",
+                  header: "Zona",
+                  searchValues: (p) => [p.zone, zoneLabel(p.zone, zones)],
+                  render: (p) => zoneLabel(p.zone, zones),
+                },
+                ...(isStaff
+                  ? [
+                      {
+                        key: "permisionarioRef",
+                        header: "ID perm.",
+                        searchValues: (p: Permit) => [
+                          p.permisionarioRef,
+                          p.permisionarioName,
+                        ],
+                        render: (p: Permit) =>
+                          p.permisionarioRef ? (
+                            <RefCell
+                              refId={p.permisionarioRef}
+                              entityKind="user"
+                            />
+                          ) : (
+                            "—"
+                          ),
+                      },
+                      {
+                        key: "permisionario",
+                        header: "Permisionario",
+                        searchValues: (p: Permit) => [p.permisionarioName],
+                        render: (p: Permit) => p.permisionarioName,
+                      },
+                    ]
+                  : []),
+                {
+                  key: "net",
+                  header: "Importe",
+                  render: (p) =>
+                    p.pricing
+                      ? `$${(p.pricing as PricingBreakdown).net.toLocaleString("es-AR")}`
+                      : "—",
+                },
+                {
+                  key: "end",
+                  header: "Vence",
+                  searchValues: (p) => [p.endAt],
+                  render: (p) =>
+                    p.endAt
+                      ? new Date(p.endAt).toLocaleString("es-AR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—",
+                },
+                {
+                  key: "actions",
+                  header: "Acciones",
+                  render: (p) => (
+                    <TableActions>
+                      <button
+                        type="button"
+                        className="btn-small"
+                        onClick={() => setSelected(p)}
+                      >
+                        Ver
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-small"
+                        onClick={() => setSelected(p)}
+                      >
+                        Editar
+                      </button>
+                    </TableActions>
+                  ),
+                },
+              ]}
+            />
           </section>
 
           {selected && (
             <section className="panel">
               <h2>Editar {selected.plate}</h2>
+              {selected.pricing && (
+                <PriceCard
+                  title="Tarifa del permiso"
+                  plate={selected.plate}
+                  minutes={selected.durationMinutes ?? undefined}
+                  pricing={selected.pricing as PricingBreakdown}
+                />
+              )}
               <div className="form-grid">
                 <label>
                   Estado
@@ -241,19 +586,16 @@ export function PermisionarioPanel({
                     <option value="cancelled">Cancelado</option>
                   </select>
                 </label>
-                <label>
-                  Zona
-                  <select
-                    defaultValue={selected.zone}
-                    onChange={(e) => partialUpdate("zone", e.target.value)}
-                  >
-                    {zoneOptions.map((z) => (
-                      <option key={z.value} value={z.value}>
-                        {z.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {canPickZone && editZoneSelectOpts.length > 1 && (
+                  <label>
+                    Zona
+                    <SearchableSelect
+                      value={selected.zone}
+                      onChange={(v) => partialUpdate("zone", v)}
+                      options={editZoneSelectOpts}
+                    />
+                  </label>
+                )}
                 <label>
                   Observación (queda en historial)
                   <textarea
@@ -262,13 +604,16 @@ export function PermisionarioPanel({
                     onChange={(e) => setObservation(e.target.value)}
                   />
                 </label>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={saveObservation}
-                >
-                  Guardar observación
-                </button>
+                <div className="action-buttons">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={savingObs}
+                    onClick={saveObservation}
+                  >
+                    {savingObs ? "Guardando…" : "Guardar observación"}
+                  </button>
+                </div>
               </div>
             </section>
           )}
@@ -282,7 +627,7 @@ export function PermisionarioPanel({
             {history.map((h) => (
               <li key={h.id}>
                 <span className={`hist-action ${h.action}`}>{h.action}</span>
-                {isAdmin && <strong>{h.userName}</strong>}
+                {isStaff && <strong>{h.userName}</strong>}
                 <p>{h.observation || JSON.stringify(h.after ?? {})}</p>
                 <time>{new Date(h.createdAt).toLocaleString("es-AR")}</time>
               </li>
@@ -291,8 +636,8 @@ export function PermisionarioPanel({
         </section>
       )}
 
-      {activeTab === "sesiones" && (
-        <ParkPanel shift={shift} onSessionChange={load} />
+      {activeTab === "plazas" && (
+        <PermisionarioSpotPanel zoneCode={assignedCode} zones={zones} />
       )}
     </>
   );

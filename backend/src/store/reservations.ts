@@ -2,6 +2,7 @@ import type { UserRole } from "@prisma/client";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
 import { calculateAmount } from "../services/pricing.js";
 import { prisma } from "../lib/prisma.js";
+import { generateUniqueRef } from "../lib/shortRef.js";
 import { adjustOccupancy, getSpot } from "./spots.js";
 
 export function validateSchedule(scheduledStart: string | Date) {
@@ -20,10 +21,13 @@ export function validateSchedule(scheduledStart: string | Date) {
 
 function mapReservation(r: {
   id: string;
+  ref: string | null;
   userId: string;
   userName: string;
+  user?: { ref: string | null } | null;
   spotId: string;
   spotLabel: string;
+  spot?: { ref: string | null } | null;
   zone: string;
   plate: string;
   vehicleType: string;
@@ -34,21 +38,13 @@ function mapReservation(r: {
   status: string;
   createdAt: Date;
 }) {
+  const { user, spot, scheduledStart, createdAt, ...rest } = r;
   return {
-    id: r.id,
-    userId: r.userId,
-    userName: r.userName,
-    spotId: r.spotId,
-    spotLabel: r.spotLabel,
-    zone: r.zone,
-    plate: r.plate,
-    vehicleType: r.vehicleType,
-    scheduledStart: r.scheduledStart.toISOString(),
-    durationMinutes: r.durationMinutes,
-    digitalPayment: r.digitalPayment,
-    pricing: r.pricing,
-    status: r.status,
-    createdAt: r.createdAt.toISOString(),
+    ...rest,
+    userRef: user?.ref ?? null,
+    spotRef: spot?.ref ?? null,
+    scheduledStart: scheduledStart.toISOString(),
+    createdAt: createdAt.toISOString(),
   };
 }
 
@@ -63,6 +59,10 @@ export async function listReservations(opts: {
         ? { status: opts.status as "confirmed" | "cancelled" }
         : {}),
     },
+    include: {
+      user: { select: { ref: true } },
+      spot: { select: { ref: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
   return list.map(mapReservation);
@@ -75,24 +75,28 @@ export async function createReservation(
     vehicleType?: string;
     scheduledStart: string | Date;
     durationMinutes?: number;
+    durationHours?: number;
     digitalPayment?: boolean;
   },
   user: { id: string; name: string },
 ) {
   validateSchedule(input.scheduledStart);
 
-  const spot = await getSpot(input.spotId);
+  const spot = await getSpot(input.spotId, user.id);
   if (!spot || !spot.enabled) {
     throw new Error("Lugar de estacionamiento no disponible.");
   }
-  if (spot.occupied >= spot.capacity) {
+  if (spot.status === "occupied") {
     throw new Error("No hay cupos libres en este lugar.");
   }
+  if (spot.status === "held" && !spot.heldByMe) {
+    throw new Error("La plaza está reservada temporalmente por otro usuario.");
+  }
 
-  const minutes = Math.max(
-    15,
-    Math.min(480, Number(input.durationMinutes) || 60),
-  );
+  const minutes =
+    input.durationHours != null
+      ? Math.max(1, Math.min(23, Number(input.durationHours))) * 60
+      : Math.max(15, Math.min(23 * 60, Number(input.durationMinutes) || 60));
   const pricing = calculateAmount({
     vehicleType: input.vehicleType === "motorcycle" ? "motorcycle" : "auto",
     minutes,
@@ -101,6 +105,7 @@ export async function createReservation(
 
   const reservation = await prisma.reservation.create({
     data: {
+      ref: await generateUniqueRef("reservation"),
       userId: user.id,
       userName: user.name,
       spotId: input.spotId,

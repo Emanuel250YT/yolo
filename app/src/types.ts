@@ -17,11 +17,14 @@ export interface CitizenProfile {
 
 export interface User {
   id: string;
+  ref?: string | null;
   email: string;
   name: string;
   role: UserRole;
   legajo: string | null;
   zone: string | null;
+  parkingZoneId: string | null;
+  zoneName: string | null;
   active: boolean;
   activationPending?: boolean;
   citizen?: CitizenProfile | null;
@@ -50,6 +53,7 @@ export interface RegisterPayload {
   name?: string;
   legajo?: string;
   zone?: string;
+  parkingZoneId?: string;
   citizen?: Partial<CitizenProfile>;
 }
 
@@ -111,6 +115,7 @@ export interface QuoteResult extends PricingBreakdown {
 
 export interface Session {
   id: string;
+  ref?: string | null;
   plate: string;
   vehicleType: "auto" | "motorcycle";
   zone: string;
@@ -122,15 +127,41 @@ export interface Session {
   checkout: (PricingBreakdown & { minutes: number }) | null;
 }
 
+export interface ParkingAlert {
+  permitId: string;
+  plate: string;
+  zone: string;
+  endAt: string;
+  minutesRemaining: number;
+  durationMinutes: number;
+  pricing?: PricingBreakdown | null;
+}
+
+export interface ConductorVehicle {
+  id: string;
+  userId: string;
+  plate: string;
+  vehicleType: "auto" | "motorcycle";
+  label: string | null;
+  source: "manual" | "gov" | string;
+  createdAt: string;
+}
+
 export interface Permit {
   id: string;
+  ref?: string | null;
   permisionarioId: string;
+  permisionarioRef?: string | null;
   permisionarioName: string;
   permisionarioLegajo: string | null;
   plate: string;
   zone: string;
   vehicleType: "auto" | "motorcycle";
   notes: string | null;
+  durationMinutes?: number;
+  pricing?: PricingBreakdown | null;
+  paymentMethod?: "cash" | "mercadopago" | null;
+  paidAt?: string | null;
   status: string;
   startAt: string;
   endAt: string | null;
@@ -152,19 +183,69 @@ export interface HistoryEntry {
 
 export interface Spot {
   id: string;
+  ref?: string | null;
   label: string;
   zone: string;
+  region?: string | null;
+  parkingZoneId?: string | null;
+  blockId?: string | null;
+  blockName?: string | null;
+  blockStreet?: string | null;
+  blockCode?: string | null;
+  row?: number;
+  col?: number;
   address: string;
+  lat?: number | null;
+  lng?: number | null;
   capacity: number;
   occupied: number;
   enabled: boolean;
+  status?: "available" | "held" | "occupied" | "disabled";
+  holdId?: string | null;
+  holdExpiresAt?: string | null;
+  heldByMe?: boolean;
+}
+
+export interface ParkingBlock {
+  id: string;
+  ref?: string | null;
+  zoneId: string;
+  zoneCode?: string;
+  zoneName?: string;
+  region?: string;
+  code: string;
+  name: string;
+  street: string;
+  lat: number | null;
+  lng: number | null;
+  enabled: boolean;
+  distanceM?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SpotHold {
+  id: string;
+  ref?: string | null;
+  spotId: string;
+  plate: string;
+  vehicleType?: "auto" | "motorcycle";
+  scheduledStart?: string;
+  durationMinutes: number;
+  digitalPayment?: boolean;
+  pricing: PricingBreakdown;
+  expiresAt: string;
+  createdAt?: string;
 }
 
 export interface Reservation {
   id: string;
+  ref?: string | null;
   userId: string;
+  userRef?: string | null;
   userName: string;
   spotId: string;
+  spotRef?: string | null;
   spotLabel: string;
   zone: string;
   plate: string;
@@ -183,8 +264,10 @@ export interface ParkingPolygon {
 
 export interface ParkingZone {
   id: string;
+  ref?: string | null;
   code: string;
   name: string;
+  region: string;
   description: string;
   imageMimeType: string | null;
   hasImage: boolean;
@@ -206,4 +289,56 @@ export interface AdminOverview {
   sessions: number;
   history: number;
   parkingZones?: number;
+}
+
+export interface DashboardStats {
+  overview: AdminOverview;
+  usersByRole: Record<string, number>;
+  usersPending: number;
+  permitsByStatus: Record<string, number>;
+  reservationsByStatus: Record<string, number>;
+  sessionsActive: number;
+  sessionsCompleted: number;
+  spotsByStatus: {
+    available: number;
+    occupied: number;
+    held: number;
+    disabled: number;
+    total: number;
+  };
+  revenueToday: {
+    permits: number;
+    sessions: number;
+    total: number;
+  };
+  revenueLast7Days: { date: string; amount: number }[];
+  permitsLast7Days: { date: string; count: number }[];
+  zoneOccupancy: {
+    zone: string;
+    zoneName: string;
+    total: number;
+    occupied: number;
+    held: number;
+    available: number;
+    occupancyPct: number;
+  }[];
+  recentPermits: {
+    id: string;
+    ref: string | null;
+    plate: string;
+    zone: string;
+    status: string;
+    net: number | null;
+    createdAt: string;
+  }[];
+  recentReservations: {
+    id: string;
+    ref: string | null;
+    plate: string;
+    spotLabel: string;
+    status: string;
+    net: number | null;
+    scheduledStart: string;
+  }[];
+  generatedAt: string;
 }

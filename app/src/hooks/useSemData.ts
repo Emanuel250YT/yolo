@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
+import { useDevTools } from "../dev/DevToolsContext";
 import type { Session, ShiftStatus, TariffsResponse } from "../types";
 
 export function useSemData() {
+  const { refreshKey } = useDevTools();
   const [tariffs, setTariffs] = useState<TariffsResponse | null>(null);
   const [shift, setShift] = useState<ShiftStatus | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -29,7 +31,7 @@ export function useSemData() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshKey]);
 
   return { tariffs, shift, sessions, loading, error, refresh };
 }
