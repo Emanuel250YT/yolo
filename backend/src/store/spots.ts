@@ -1,3 +1,4 @@
+import { getNow, getNowMs } from "../services/devClock.js";
 import { prisma } from "../lib/prisma.js";
 import { pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
@@ -32,7 +33,7 @@ type SpotRow = {
 };
 
 function mapSpotLive(s: SpotRow, viewerUserId?: string) {
-  const activeHold = s.holds?.find((h) => h.expiresAt > new Date());
+  const activeHold = s.holds?.find((h) => h.expiresAt > getNow());
   const isHeld = Boolean(activeHold);
   const heldByMe = activeHold?.userId === viewerUserId;
 
@@ -72,7 +73,7 @@ function mapSpotLive(s: SpotRow, viewerUserId?: string) {
 
 export async function expireStaleHolds() {
   await prisma.spotHold.deleteMany({
-    where: { expiresAt: { lte: new Date() } },
+    where: { expiresAt: { lte: getNow() } },
   });
 }
 
@@ -93,7 +94,7 @@ export async function listSpotsLive(opts: {
     include: {
       block: { select: { name: true, street: true, code: true } },
       holds: {
-        where: { expiresAt: { gt: new Date() } },
+        where: { expiresAt: { gt: getNow() } },
         select: { id: true, userId: true, expiresAt: true },
       },
     },
@@ -118,7 +119,7 @@ export async function getSpot(id: string, viewerUserId?: string) {
     include: {
       block: { select: { name: true, street: true, code: true } },
       holds: {
-        where: { expiresAt: { gt: new Date() } },
+        where: { expiresAt: { gt: getNow() } },
         select: { id: true, userId: true, expiresAt: true },
       },
     },
@@ -265,7 +266,7 @@ export async function createSpotAtZonePoint(input: {
     include: {
       block: { select: { name: true, street: true, code: true } },
       holds: {
-        where: { expiresAt: { gt: new Date() } },
+        where: { expiresAt: { gt: getNow() } },
         select: { id: true, userId: true, expiresAt: true },
       },
     },
@@ -325,7 +326,7 @@ export async function createSpotsAlongLine(input: {
         include: {
           block: { select: { name: true, street: true, code: true } },
           holds: {
-            where: { expiresAt: { gt: new Date() } },
+            where: { expiresAt: { gt: getNow() } },
             select: { id: true, userId: true, expiresAt: true },
           },
         },
@@ -375,7 +376,7 @@ export async function createSpotAtPoint(input: {
     include: {
       block: { select: { name: true, street: true, code: true } },
       holds: {
-        where: { expiresAt: { gt: new Date() } },
+        where: { expiresAt: { gt: getNow() } },
         select: { id: true, userId: true, expiresAt: true },
       },
     },
@@ -400,7 +401,7 @@ export async function setSpotOccupancy(
   }
 
   const activeHold = await prisma.spotHold.findFirst({
-    where: { spotId, expiresAt: { gt: new Date() } },
+    where: { spotId, expiresAt: { gt: getNow() } },
   });
   if (activeHold) {
     throw new Error("La plaza tiene una reserva temporal activa.");
@@ -412,7 +413,7 @@ export async function setSpotOccupancy(
     include: {
       block: { select: { name: true, street: true, code: true } },
       holds: {
-        where: { expiresAt: { gt: new Date() } },
+        where: { expiresAt: { gt: getNow() } },
         select: { id: true, userId: true, expiresAt: true },
       },
     },

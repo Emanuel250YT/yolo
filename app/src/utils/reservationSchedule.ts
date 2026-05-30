@@ -1,7 +1,9 @@
 /** Ventana de reserva: desde ahora hasta +maxAdvanceMinutes. */
 
+import { getDevNowMs } from "../dev/devConfig";
+
 export function buildReservationStartSlots(maxAdvanceMinutes = 30) {
-  const now = Date.now();
+  const now = getDevNowMs();
   const max = now + maxAdvanceMinutes * 60_000;
   const stepMs = 5 * 60_000;
 
@@ -34,7 +36,10 @@ function formatClock(ms: number) {
 }
 
 export function defaultStartSlot(maxAdvanceMinutes = 30) {
-  return buildReservationStartSlots(maxAdvanceMinutes)[0]?.value ?? new Date().toISOString();
+  return (
+    buildReservationStartSlots(maxAdvanceMinutes)[0]?.value ??
+    new Date(getDevNowMs()).toISOString()
+  );
 }
 
 export const RESERVATION_HOUR_OPTIONS = Array.from({ length: 23 }, (_, i) => i + 1);

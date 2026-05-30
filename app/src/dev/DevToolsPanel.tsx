@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { parseDevAccounts } from "./devConfig";
+import {
+  bumpDevClockMinutes,
+  formatDatetimeLocal,
+  formatDevClockDisplay,
+  getDevNow,
+  parseDatetimeLocal,
+  parseDevAccounts,
+} from "./devConfig";
 import { useDevTools } from "./DevToolsContext";
 import type { DevShiftOverride } from "./devConfig";
 
@@ -12,6 +19,8 @@ export function DevToolsPanel() {
     serverEnabled,
     shiftOverride,
     setShiftOverride,
+    clockOverride,
+    setClockOverride,
     geoOverride,
     setGeoOverride,
   } = useDevTools();
@@ -23,6 +32,9 @@ export function DevToolsPanel() {
   if (!ready || !enabled) return null;
 
   const accounts = parseDevAccounts();
+  const effectiveNow = clockOverride.enabled
+    ? formatDevClockDisplay(clockOverride.iso)
+    : formatDevClockDisplay(getDevNow().toISOString());
 
   async function switchAccount(email: string, password: string) {
     setBusy(true);
@@ -35,6 +47,17 @@ export function DevToolsPanel() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function enableClockWithNow() {
+    setClockOverride({
+      enabled: true,
+      iso: getDevNow().toISOString(),
+    });
+  }
+
+  function bumpClock(minutes: number) {
+    setClockOverride(bumpDevClockMinutes(minutes));
   }
 
   return (
@@ -82,6 +105,72 @@ export function DevToolsPanel() {
           )}
 
           <section className="dev-tools-section">
+            <p className="dev-tools-label">Reloj simulado</p>
+            <label className="dev-tools-check">
+              <input
+                type="checkbox"
+                checked={clockOverride.enabled}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    enableClockWithNow();
+                  } else {
+                    setClockOverride({ ...clockOverride, enabled: false });
+                  }
+                }}
+              />
+              Usar hora simulada (en vez de la PC)
+            </label>
+            {clockOverride.enabled && (
+              <>
+                <p className="dev-tools-meta">
+                  Efectiva: <strong>{effectiveNow}</strong>
+                </p>
+                <label className="dev-tools-datetime">
+                  Fecha y hora
+                  <input
+                    type="datetime-local"
+                    value={formatDatetimeLocal(clockOverride.iso)}
+                    onChange={(e) =>
+                      setClockOverride({
+                        enabled: true,
+                        iso: parseDatetimeLocal(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <div className="dev-tools-actions">
+                  <button
+                    type="button"
+                    className="btn-small btn-ghost"
+                    onClick={() => bumpClock(15)}
+                  >
+                    +15 min
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small btn-ghost"
+                    onClick={() => bumpClock(60)}
+                  >
+                    +1 h
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-small btn-ghost"
+                    onClick={() =>
+                      setClockOverride({
+                        enabled: true,
+                        iso: new Date().toISOString(),
+                      })
+                    }
+                  >
+                    Ahora (PC)
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="dev-tools-section">
             <p className="dev-tools-label">Horario de cobro</p>
             <select
               value={shiftOverride}
@@ -89,12 +178,18 @@ export function DevToolsPanel() {
                 setShiftOverride(e.target.value as DevShiftOverride)
               }
             >
-              <option value="auto">Automático (servidor)</option>
+              <option value="auto">
+                Automático (según reloj simulado / servidor)
+              </option>
               <option value="open">Forzar abierto</option>
               <option value="closed">Forzar cerrado</option>
               <option value="day">Turno diurno</option>
               <option value="night">Turno nocturno</option>
             </select>
+            <p className="dev-tools-hint">
+              Con «Automático» y reloj simulado podés probar fuera de horario
+              sin forzar el turno.
+            </p>
           </section>
 
           <section className="dev-tools-section">

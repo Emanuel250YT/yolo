@@ -1,6 +1,7 @@
+import { getNow } from "./devClock.js";
 import { prisma } from "../lib/prisma.js";
 
-export async function expireStalePermits(now = new Date()) {
+export async function expireStalePermits(now = getNow()) {
   const expired = await prisma.permit.findMany({
     where: {
       status: "active",

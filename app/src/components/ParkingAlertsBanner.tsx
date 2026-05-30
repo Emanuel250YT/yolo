@@ -1,3 +1,4 @@
+import { getDevNowMs } from "../dev/devConfig";
 import { useEffect, useState } from "react";
 import type { ParkingAlert } from "../types";
 
@@ -33,7 +34,7 @@ export function ParkingAlertsBanner({
         const remaining = Math.max(
           0,
           Math.round(
-            (new Date(alert.endAt).getTime() - Date.now()) / 60_000,
+            (new Date(alert.endAt).getTime() - getDevNowMs()) / 60_000,
           ),
         );
         const urgent = remaining <= 15;

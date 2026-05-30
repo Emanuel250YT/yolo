@@ -1,3 +1,4 @@
+import { getNow } from "../services/devClock.js";
 import { prisma } from "../lib/prisma.js";
 
 export class SafeDeleteError extends Error {
@@ -26,7 +27,7 @@ export async function getSpotDeleteBlockers(spotId: string) {
   }
 
   const activeHolds = await prisma.spotHold.count({
-    where: { spotId, expiresAt: { gt: new Date() } },
+    where: { spotId, expiresAt: { gt: getNow() } },
   });
   if (activeHolds > 0) {
     blockers.push(
@@ -132,7 +133,7 @@ async function deleteParkingZoneCascade(id: string, zoneCode?: string) {
     }),
     prisma.reservation.updateMany({
       where: { zone: zone.code, status: "confirmed" },
-      data: { status: "cancelled", cancelledAt: new Date() },
+      data: { status: "cancelled", cancelledAt: getNow() },
     }),
     prisma.spotHold.deleteMany({
       where: { spot: { parkingZoneId: id } },
@@ -186,7 +187,7 @@ export async function getParkingZoneDeleteBlockers(id: string) {
 
   const activeHolds = await prisma.spotHold.count({
     where: {
-      expiresAt: { gt: new Date() },
+      expiresAt: { gt: getNow() },
       spot: { zone: zone.code },
     },
   });

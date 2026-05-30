@@ -1,3 +1,4 @@
+import { getNow, getNowMs } from "../services/devClock.js";
 import type { UserRole } from "../prisma/client.js";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -7,7 +8,7 @@ import { adjustOccupancy, getSpot } from "./spots.js";
 
 export function validateSchedule(scheduledStart: string | Date) {
   const start = new Date(scheduledStart).getTime();
-  const now = Date.now();
+  const now = getNowMs();
   if (Number.isNaN(start)) {
     throw new Error("Fecha de inicio inválida.");
   }
@@ -141,7 +142,7 @@ export async function cancelReservation(
 
   const updated = await prisma.reservation.update({
     where: { id },
-    data: { status: "cancelled", cancelledAt: new Date() },
+    data: { status: "cancelled", cancelledAt: getNow() },
   });
 
   await adjustOccupancy(r.spotId, -1);

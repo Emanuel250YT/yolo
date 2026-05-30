@@ -1,3 +1,5 @@
+import { useDevTools } from "../dev/DevToolsContext";
+import { getDevNowMs } from "../dev/devConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { AppShell } from "../components/AppShell";
@@ -53,6 +55,7 @@ function spotStatusLabel(s: Spot) {
 }
 
 export function ConductorDashboard() {
+  const { refreshKey } = useDevTools();
   const [tab, setTab] = useState("inicio");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [blocks, setBlocks] = useState<ParkingBlock[]>([]);
@@ -70,7 +73,6 @@ export function ConductorDashboard() {
     null,
   );
   const [slotTick, setSlotTick] = useState(0);
-  const [liveTick, setLiveTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const geo = useGeolocation(tab === "reservar" || tab === "lugares");
@@ -96,7 +98,7 @@ export function ConductorDashboard() {
 
   const startSlots = useMemo(
     () => buildReservationStartSlots(maxAdvance),
-    [maxAdvance, slotTick],
+    [maxAdvance, slotTick, refreshKey],
   );
 
   const sortedBlocks = useMemo(() => {
@@ -198,11 +200,10 @@ export function ConductorDashboard() {
     if (tab !== "reservar" && tab !== "lugares") return;
     refreshLiveSpots();
     const id = window.setInterval(() => {
-      setLiveTick((t) => t + 1);
       refreshLiveSpots();
     }, 5_000);
     return () => window.clearInterval(id);
-  }, [tab, refreshLiveSpots, liveTick]);
+  }, [tab, refreshLiveSpots, refreshKey]);
 
   useEffect(() => {
     if (!startSlots.some((s) => s.value === form.scheduledStart)) {
@@ -217,14 +218,14 @@ export function ConductorDashboard() {
     if (!activeHold) return;
     const id = window.setInterval(async () => {
       const exp = new Date(activeHold.expiresAt).getTime();
-      if (exp <= Date.now()) {
+      if (exp <= getDevNowMs()) {
         setActiveHold(null);
         setSelectedSpotId(null);
         await refreshLiveSpots();
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [activeHold, refreshLiveSpots]);
+  }, [activeHold, refreshLiveSpots, refreshKey]);
 
   function goRenew(plate: string) {
     setForm((f) => ({ ...f, plate }));
@@ -244,7 +245,7 @@ export function ConductorDashboard() {
     await runHold(async () => {
       setError(null);
       const start = new Date(form.scheduledStart).getTime();
-      const limit = Date.now() + maxAdvance * 60 * 1000;
+      const limit = getDevNowMs() + maxAdvance * 60 * 1000;
       if (start > limit) {
         setError(`Solo podés reservar hasta ${maxAdvance} minutos adelante.`);
         return;

@@ -13,6 +13,9 @@ export function ShiftBanner({ shift, tariffs }: ShiftBannerProps) {
       <div>
         <p className="shift-label">
           {shift.canCharge ? "Cobro habilitado" : "Cobro no habilitado"}
+          {shift.simulatedClock && (
+            <span className="chip chip--dev">Reloj simulado</span>
+          )}
         </p>
         <p className="shift-msg">{shift.message}</p>
       </div>

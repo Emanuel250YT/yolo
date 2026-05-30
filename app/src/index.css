@@ -3063,6 +3063,39 @@ textarea {
   border-radius: 6px;
 }
 
+.dev-tools-datetime {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  margin-top: 0.35rem;
+}
+
+.dev-tools-datetime input[type="datetime-local"] {
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.dev-tools-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.chip--dev {
+  margin-left: 0.45rem;
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+  font-size: 0.68rem;
+  vertical-align: middle;
+}
+
 /* —— Tabla estándar con filtros —— */
 .data-table-panel {
   display: flex;

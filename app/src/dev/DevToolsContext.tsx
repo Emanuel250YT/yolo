@@ -13,9 +13,12 @@ import {
   isClientDevToolsEnabled,
   loadDevGeo,
   loadDevShift,
+  loadDevClock,
   persistDevShift,
+  persistDevClock,
   saveDevGeo,
   type AppMeta,
+  type DevClockOverride,
   type DevGeoOverride,
   type DevShiftOverride,
 } from "./devConfig";
@@ -28,6 +31,8 @@ interface DevToolsContextValue {
   appMeta: AppMeta;
   shiftOverride: DevShiftOverride;
   setShiftOverride: (value: DevShiftOverride) => void;
+  clockOverride: DevClockOverride;
+  setClockOverride: (value: DevClockOverride) => void;
   geoOverride: DevGeoOverride;
   setGeoOverride: (value: DevGeoOverride) => void;
   refreshKey: number;
@@ -45,6 +50,9 @@ export function DevToolsProvider({ children }: { children: ReactNode }) {
   const [appMeta, setAppMeta] = useState<AppMeta>(DEFAULT_META);
   const [shiftOverride, setShiftState] = useState<DevShiftOverride>(() =>
     loadDevShift(),
+  );
+  const [clockOverride, setClockState] = useState<DevClockOverride>(() =>
+    loadDevClock(),
   );
   const [geoOverride, setGeoState] = useState<DevGeoOverride>(() =>
     loadDevGeo(),
@@ -82,6 +90,12 @@ export function DevToolsProvider({ children }: { children: ReactNode }) {
     setRefreshKey((k) => k + 1);
   }, []);
 
+  const setClockOverride = useCallback((value: DevClockOverride) => {
+    persistDevClock(value);
+    setClockState(value);
+    setRefreshKey((k) => k + 1);
+  }, []);
+
   const setGeoOverride = useCallback((value: DevGeoOverride) => {
     saveDevGeo(value);
     setGeoState(value);
@@ -101,6 +115,8 @@ export function DevToolsProvider({ children }: { children: ReactNode }) {
       appMeta,
       shiftOverride,
       setShiftOverride,
+      clockOverride,
+      setClockOverride,
       geoOverride,
       setGeoOverride,
       refreshKey,
@@ -114,6 +130,8 @@ export function DevToolsProvider({ children }: { children: ReactNode }) {
       appMeta,
       shiftOverride,
       setShiftOverride,
+      clockOverride,
+      setClockOverride,
       geoOverride,
       setGeoOverride,
       refreshKey,
@@ -137,6 +155,8 @@ export function useDevTools() {
       appMeta: DEFAULT_META,
       shiftOverride: "auto" as DevShiftOverride,
       setShiftOverride: () => {},
+      clockOverride: { enabled: false, iso: "" },
+      setClockOverride: () => {},
       geoOverride: DEFAULT_DEV_GEO,
       setGeoOverride: () => {},
       refreshKey: 0,

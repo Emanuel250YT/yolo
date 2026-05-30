@@ -1,3 +1,4 @@
+import { getDevNowMs } from "../dev/devConfig";
 import { useEffect, useState } from "react";
 import type { SpotHold } from "../types";
 
@@ -24,12 +25,12 @@ export function PaymentHoldBanner({
   paying,
 }: PaymentHoldBannerProps) {
   const [remaining, setRemaining] = useState(
-    () => new Date(hold.expiresAt).getTime() - Date.now(),
+    () => new Date(hold.expiresAt).getTime() - getDevNowMs(),
   );
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setRemaining(new Date(hold.expiresAt).getTime() - Date.now());
+      setRemaining(new Date(hold.expiresAt).getTime() - getDevNowMs());
     }, 1000);
     return () => window.clearInterval(id);
   }, [hold.expiresAt]);

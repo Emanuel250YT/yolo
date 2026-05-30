@@ -1,3 +1,4 @@
+import { getDevNowMs } from "../dev/devConfig";
 import type { ParkingBlock, Spot } from "../types";
 
 const R = 6371e3;
@@ -45,7 +46,7 @@ export type SpotLiveStatus = "available" | "held" | "occupied" | "disabled";
 export function spotLiveStatus(spot: Spot): SpotLiveStatus {
   if (!spot.enabled) return "disabled";
   if (spot.occupied >= spot.capacity) return "occupied";
-  if (spot.holdExpiresAt && new Date(spot.holdExpiresAt).getTime() > Date.now()) {
+  if (spot.holdExpiresAt && new Date(spot.holdExpiresAt).getTime() > getDevNowMs()) {
     return "held";
   }
   return "available";

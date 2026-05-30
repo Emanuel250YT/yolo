@@ -1,14 +1,22 @@
 import { SHIFTS } from "../config/tariffs.js";
 import { isDevToolsEnabled } from "../config/devTools.js";
+import { getNow, isSimulatedClockActive } from "./devClock.js";
 import { getShiftStatus } from "./shifts.js";
 
 export { isDevToolsEnabled };
 
-export function getShiftStatusWithDevOverride(
-  override: string | undefined,
-  date = new Date(),
-) {
-  const base = getShiftStatus(date);
+function withDevMeta<T extends { now: string; message: string }>(payload: T) {
+  if (!isSimulatedClockActive()) return payload;
+  return {
+    ...payload,
+    simulatedClock: true,
+    message: `[DEV ${payload.now.slice(11, 16)}] ${payload.message}`,
+  };
+}
+
+export function getShiftStatusWithDevOverride(override: string | undefined) {
+  const date = getNow();
+  const base = withDevMeta(getShiftStatus(date));
   if (!isDevToolsEnabled() || !override || override === "auto") {
     return base;
   }
@@ -16,7 +24,7 @@ export function getShiftStatusWithDevOverride(
   const nightZones = SHIFTS.night.zones;
 
   if (override === "open") {
-    return {
+    return withDevMeta({
       ...base,
       canCharge: true,
       canChargeDay: true,
@@ -24,11 +32,12 @@ export function getShiftStatusWithDevOverride(
       activeShift: "day",
       message: "[DEV] Cobro forzado — turno abierto.",
       zones: nightZones,
-    };
+      now: base.now,
+    });
   }
 
   if (override === "closed") {
-    return {
+    return withDevMeta({
       ...base,
       canCharge: false,
       canChargeDay: false,
@@ -36,11 +45,12 @@ export function getShiftStatusWithDevOverride(
       activeShift: null,
       message: "[DEV] Cobro forzado — fuera de horario.",
       zones: [],
-    };
+      now: base.now,
+    });
   }
 
   if (override === "day") {
-    return {
+    return withDevMeta({
       ...base,
       canCharge: true,
       canChargeDay: true,
@@ -48,11 +58,12 @@ export function getShiftStatusWithDevOverride(
       activeShift: "day",
       message: "[DEV] Turno diurno simulado.",
       zones: [],
-    };
+      now: base.now,
+    });
   }
 
   if (override === "night") {
-    return {
+    return withDevMeta({
       ...base,
       canCharge: true,
       canChargeDay: false,
@@ -60,7 +71,8 @@ export function getShiftStatusWithDevOverride(
       activeShift: "night",
       message: "[DEV] Turno nocturno simulado.",
       zones: nightZones,
-    };
+      now: base.now,
+    });
   }
 
   return base;

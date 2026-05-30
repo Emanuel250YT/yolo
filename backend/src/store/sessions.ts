@@ -1,3 +1,4 @@
+import { getNow } from "../services/devClock.js";
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -83,7 +84,7 @@ export async function checkoutSession(
     throw new Error("La sesión ya fue finalizada.");
   }
 
-  const endedAt = new Date();
+  const endedAt = getNow();
   const minutes = Math.max(
     0,
     Math.round((endedAt.getTime() - session.startedAt.getTime()) / 60000),

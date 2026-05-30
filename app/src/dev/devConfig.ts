@@ -12,12 +12,18 @@ export interface DevGeoOverride {
   lng: number;
 }
 
+export interface DevClockOverride {
+  enabled: boolean;
+  iso: string;
+}
+
 export interface AppMeta {
   version: string;
   commit: string;
 }
 
 let shiftOverride: DevShiftOverride = "auto";
+let clockOverride: DevClockOverride = { enabled: false, iso: "" };
 
 /** Flag local: requiere VITE_DEV_TOOLS=true en app/.env */
 export function isClientDevToolsEnabled() {
@@ -36,9 +42,70 @@ export function setDevShiftOverride(value: DevShiftOverride) {
   shiftOverride = value;
 }
 
+export function getDevClockOverride() {
+  return clockOverride;
+}
+
+export function setDevClockOverride(value: DevClockOverride) {
+  clockOverride = value;
+}
+
+/** Hora efectiva en el cliente (simulada en DevTools o real). */
+export function getDevNow(): Date {
+  if (
+    !isClientDevToolsEnabled() ||
+    !clockOverride.enabled ||
+    !clockOverride.iso
+  ) {
+    return new Date();
+  }
+  const parsed = new Date(clockOverride.iso);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+export function getDevNowMs(): number {
+  return getDevNow().getTime();
+}
+
+export function formatDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function parseDatetimeLocal(value: string): string {
+  return new Date(value).toISOString();
+}
+
+export function formatDevClockDisplay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("es-AR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function bumpDevClockMinutes(minutes: number): DevClockOverride {
+  const base = clockOverride.enabled ? getDevNow() : new Date();
+  return {
+    enabled: true,
+    iso: new Date(base.getTime() + minutes * 60_000).toISOString(),
+  };
+}
+
 export function getDevHeaders(): Record<string, string> {
-  if (!isClientDevToolsEnabled() || shiftOverride === "auto") return {};
-  return { "X-Dev-Shift": shiftOverride };
+  if (!isClientDevToolsEnabled()) return {};
+  const headers: Record<string, string> = {};
+  if (shiftOverride !== "auto") headers["X-Dev-Shift"] = shiftOverride;
+  if (clockOverride.enabled && clockOverride.iso) {
+    headers["X-Dev-Time"] = clockOverride.iso;
+  }
+  return headers;
 }
 
 const DEFAULT_DEV_ACCOUNTS: DevAccount[] = [
@@ -121,4 +188,31 @@ export function persistDevShift(value: DevShiftOverride) {
   setDevShiftOverride(value);
 }
 
+const CLOCK_STORAGE_KEY = "sem_dev_clock";
+
+export function loadDevClock(): DevClockOverride {
+  try {
+    const raw = localStorage.getItem(CLOCK_STORAGE_KEY);
+    if (!raw) {
+      return { enabled: false, iso: new Date().toISOString() };
+    }
+    const parsed = JSON.parse(raw) as DevClockOverride;
+    return {
+      enabled: Boolean(parsed.enabled),
+      iso:
+        typeof parsed.iso === "string"
+          ? parsed.iso
+          : new Date().toISOString(),
+    };
+  } catch {
+    return { enabled: false, iso: new Date().toISOString() };
+  }
+}
+
+export function persistDevClock(value: DevClockOverride) {
+  localStorage.setItem(CLOCK_STORAGE_KEY, JSON.stringify(value));
+  setDevClockOverride(value);
+}
+
 setDevShiftOverride(loadDevShift());
+clockOverride = loadDevClock();

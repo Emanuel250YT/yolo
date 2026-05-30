@@ -1,3 +1,4 @@
+import { getNow, getNowMs } from "../services/devClock.js";
 import type { VehicleType } from "../prisma/client.js";
 import { SPOT_HOLD_MS } from "../config/reservations.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -32,7 +33,7 @@ export async function createSpotHold(
   const activeHold = await prisma.spotHold.findFirst({
     where: {
       spotId,
-      expiresAt: { gt: new Date() },
+      expiresAt: { gt: getNow() },
     },
   });
   if (activeHold && activeHold.userId !== user.id) {
@@ -58,7 +59,7 @@ export async function createSpotHold(
     free: spot.spotType === "gratuita",
   });
 
-  const expiresAt = new Date(Date.now() + SPOT_HOLD_MS);
+  const expiresAt = new Date(getNowMs() + SPOT_HOLD_MS);
 
   const hold = await prisma.spotHold.create({
     data: {
@@ -105,7 +106,7 @@ export async function confirmSpotHold(
   const hold = await prisma.spotHold.findUnique({ where: { id: holdId } });
   if (!hold) throw new Error("La reserva temporal expiró. Elegí otra plaza.");
   if (hold.userId !== user.id) throw new Error("No autorizado.");
-  if (hold.expiresAt.getTime() <= Date.now()) {
+  if (hold.expiresAt.getTime() <= getNowMs()) {
     await prisma.spotHold.delete({ where: { id: holdId } });
     throw new Error("Se agotaron los 10 minutos para pagar. Elegí la plaza nuevamente.");
   }
@@ -141,7 +142,7 @@ export async function getSpotHold(holdId: string, userId: string) {
   await expireStaleHolds();
   const hold = await prisma.spotHold.findUnique({ where: { id: holdId } });
   if (!hold || hold.userId !== userId) return null;
-  if (hold.expiresAt.getTime() <= Date.now()) {
+  if (hold.expiresAt.getTime() <= getNowMs()) {
     await prisma.spotHold.delete({ where: { id: holdId } });
     return null;
   }

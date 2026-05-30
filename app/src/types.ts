@@ -88,6 +88,7 @@ export interface ShiftStatus {
   message: string;
   zones: string[];
   now: string;
+  simulatedClock?: boolean;
 }
 
 export interface QuotePayload {
