@@ -5,6 +5,7 @@ import { paymentBrickUrl } from "../config/mercadopago.js";
 import { createMercadoPagoPreference } from "../services/mercadopagoCheckout.js";
 import { addHistoryEntry } from "./history.js";
 import { createReservation } from "./reservations.js";
+import { occupySpotForPermit, resolvePermitSpot } from "./spots.js";
 
 function mapOrder(o: {
   id: string;
@@ -47,6 +48,18 @@ function mapOrder(o: {
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
   };
+}
+
+export async function getPendingPaymentOrderForPermit(permitId: string) {
+  const order = await prisma.paymentOrder.findFirst({
+    where: {
+      kind: "permit",
+      entityId: permitId,
+      status: "pending",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return order ? mapOrder(order) : null;
 }
 
 export async function getPaymentOrderByRef(ref: string) {
@@ -97,13 +110,50 @@ async function fulfillPermitPayment(order: {
   ref: string;
   mpPaymentId: string | null;
 }) {
-  const permit = await prisma.permit.findUnique({ where: { id: order.entityId } });
+  const permit = await prisma.permit.findUnique({
+    where: { id: order.entityId },
+    include: { spot: { select: { id: true, label: true } } },
+  });
   if (!permit) return;
 
   await prisma.permit.update({
     where: { id: permit.id },
     data: { paidAt: new Date() },
   });
+
+  let spotLabel = permit.spot?.label ?? null;
+  try {
+    const spot = await resolvePermitSpot({
+      zoneCode: permit.zone,
+      spotId: permit.spotId,
+      lat: permit.locationLat,
+      lng: permit.locationLng,
+    });
+    if (spot.id !== permit.spotId) {
+      await prisma.permit.update({
+        where: { id: permit.id },
+        data: { spotId: spot.id },
+      });
+      spotLabel = spot.label;
+    }
+    await occupySpotForPermit(spot.id, {
+      id: permit.permisionarioId,
+      role: "permisionario",
+      zone: permit.zone,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "No se pudo ocupar la plaza.";
+    await addHistoryEntry({
+      permitId: permit.id,
+      userId: permit.permisionarioId,
+      userName: permit.permisionarioName,
+      action: "observation",
+      entityRef: permit.ref,
+      entityLabel: permit.plate,
+      observation: `Pago confirmado pero ${msg}`,
+    });
+    spotLabel = null;
+  }
 
   await addHistoryEntry({
     permitId: permit.id,
@@ -112,7 +162,7 @@ async function fulfillPermitPayment(order: {
     action: "update",
     entityRef: permit.ref,
     entityLabel: permit.plate,
-    observation: `Pago Mercado Pago confirmado · orden ${order.ref}${order.mpPaymentId ? ` · pago ${order.mpPaymentId}` : ""}`,
+    observation: `Pago Mercado Pago confirmado · orden ${order.ref}${order.mpPaymentId ? ` · pago ${order.mpPaymentId}` : ""}${spotLabel ? ` · plaza ${spotLabel}` : ""}`,
   });
 }
 

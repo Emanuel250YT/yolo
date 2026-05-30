@@ -52,6 +52,25 @@ export function spotLiveStatus(spot: Spot): SpotLiveStatus {
   return "available";
 }
 
+export function pickNearestAvailableSpot(
+  spots: Spot[],
+  lat: number,
+  lng: number,
+): Spot | null {
+  let best: Spot | null = null;
+  let bestDist = Infinity;
+  for (const s of spots) {
+    if (spotLiveStatus(s) !== "available") continue;
+    if (s.lat == null || s.lng == null) continue;
+    const d = distanceMeters(lat, lng, s.lat, s.lng);
+    if (d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
 export function groupSpotsByBlock(spots: Spot[]) {
   const map = new Map<string, Spot[]>();
   for (const s of spots) {

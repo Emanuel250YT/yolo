@@ -479,6 +479,10 @@ export const api = {
     request<{ history: HistoryEntry[] }>(
       `/permisionario/permits/${id}/history`,
     ),
+  getPermitPayment: (id: string) =>
+    request<{ payment: PaymentOrderInfo | null }>(
+      `/permisionario/permits/${id}/payment`,
+    ),
   permHistory: (query?: ListQuery) =>
     request<PaginatedList<"history", HistoryEntry>>(
       `/permisionario/history${buildQuery(query)}`,

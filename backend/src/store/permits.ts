@@ -13,8 +13,14 @@ import { getTariffs } from "./tariffs.js";
 import { addHistoryEntry } from "./history.js";
 import { createPaymentOrder } from "./paymentOrders.js";
 import { isMercadoPagoLinked } from "./mercadopago.js";
+import { occupySpotForPermit, resolvePermitSpot } from "./spots.js";
 
 const PERMIT_ROLES = new Set(["admin", "permisionario", "municipio"]);
+
+const permitInclude = {
+  permisionario: { select: { ref: true } },
+  spot: { select: { id: true, label: true, ref: true } },
+} as const;
 
 function mapPermit(p: {
   id: string;
@@ -31,16 +37,21 @@ function mapPermit(p: {
   pricing: unknown;
   paymentMethod: PaymentMethod | null;
   paidAt: Date | null;
+  spotId: string | null;
+  spot?: { id: string; label: string; ref: string | null } | null;
+  locationLat: number | null;
+  locationLng: number | null;
   status: PermitStatus;
   startAt: Date;
   endAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
-  const { permisionario, startAt, endAt, paidAt, createdAt, updatedAt, ...rest } = p;
+  const { permisionario, spot, startAt, endAt, paidAt, createdAt, updatedAt, ...rest } = p;
   return {
     ...rest,
     permisionarioRef: permisionario?.ref ?? null,
+    spotLabel: spot?.label ?? null,
     startAt: startAt.toISOString(),
     endAt: endAt?.toISOString() ?? null,
     paidAt: paidAt?.toISOString() ?? null,
@@ -76,7 +87,7 @@ export async function listPermits(opts: {
   if (!opts.pagination) {
     const permits = await prisma.permit.findMany({
       where,
-      include: { permisionario: { select: { ref: true } } },
+      include: permitInclude,
       orderBy: { createdAt: "desc" },
     });
     return permits.map(mapPermit);
@@ -86,7 +97,7 @@ export async function listPermits(opts: {
     prisma.permit.count({ where }),
     prisma.permit.findMany({
       where,
-      include: { permisionario: { select: { ref: true } } },
+      include: permitInclude,
       orderBy: { createdAt: "desc" },
       skip: opts.pagination.skip,
       take: opts.pagination.take,
@@ -97,7 +108,10 @@ export async function listPermits(opts: {
 
 export async function getPermit(id: string) {
   await expireStalePermits();
-  const p = await prisma.permit.findUnique({ where: { id } });
+  const p = await prisma.permit.findUnique({
+    where: { id },
+    include: permitInclude,
+  });
   return p ? mapPermit(p) : null;
 }
 
@@ -112,6 +126,9 @@ export async function createPermit(
     durationMinutes?: number;
     hours?: number;
     paymentMethod?: string;
+    spotId?: string;
+    lat?: number;
+    lng?: number;
   },
   actor: AuthActor,
 ) {
@@ -157,6 +174,24 @@ export async function createPermit(
     ? new Date(input.endAt)
     : new Date(startAt.getTime() + durationMinutes * 60_000);
 
+  const zone = input.zone?.trim() || actor.zone || "microcentro";
+
+  const locationLat =
+    input.lat != null && Number.isFinite(Number(input.lat))
+      ? Number(input.lat)
+      : null;
+  const locationLng =
+    input.lng != null && Number.isFinite(Number(input.lng))
+      ? Number(input.lng)
+      : null;
+
+  const resolvedSpot = await resolvePermitSpot({
+    zoneCode: zone,
+    spotId: input.spotId,
+    lat: locationLat,
+    lng: locationLng,
+  });
+
   const permit = await prisma.permit.create({
     data: {
       ref: await generateUniqueRef("permit"),
@@ -164,19 +199,31 @@ export async function createPermit(
       permisionarioName: actor.name,
       permisionarioLegajo: actor.legajo ?? null,
       plate: input.plate.trim().toUpperCase(),
-      zone: input.zone?.trim() || actor.zone || "microcentro",
+      zone,
       vehicleType,
       notes: input.notes?.trim() || null,
       durationMinutes,
       pricing,
       paymentMethod,
       paidAt: paymentMethod === "cash" ? new Date() : null,
+      spotId: resolvedSpot.id,
+      locationLat,
+      locationLng,
       startAt,
       endAt,
     },
+    include: permitInclude,
   });
 
   const mapped = mapPermit(permit);
+
+  if (paymentMethod === "cash") {
+    await occupySpotForPermit(resolvedSpot.id, {
+      id: actor.id,
+      role: actor.role,
+      zone: actor.zone ?? null,
+    });
+  }
 
   if (paymentMethod === "mercadopago") {
     const permisionario = await prisma.user.findUnique({
@@ -208,7 +255,7 @@ export async function createPermit(
       entityRef: permit.ref,
       entityLabel: permit.plate,
       after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
-      observation: `Permiso creado · pago MP pendiente · $${pricing.net} · orden ${payment.orderId}`,
+      observation: `Permiso creado · pago MP pendiente · $${pricing.net} · orden ${payment.orderId} · plaza ${resolvedSpot.label}`,
     });
 
     return { permit: mapped, payment };
@@ -222,7 +269,7 @@ export async function createPermit(
     entityRef: permit.ref,
     entityLabel: permit.plate,
     after: JSON.parse(JSON.stringify(mapped)) as Prisma.InputJsonValue,
-    observation: `Pago ${paymentMethod === "cash" ? "en efectivo" : "MercadoPago"} · $${pricing.net}`,
+    observation: `Pago ${paymentMethod === "cash" ? "en efectivo" : "MercadoPago"} · $${pricing.net} · plaza ${resolvedSpot.label}`,
   });
 
   return { permit: mapped };
@@ -267,6 +314,7 @@ export async function updatePermit(
   const permit = await prisma.permit.update({
     where: { id },
     data,
+    include: permitInclude,
   });
 
   const mapped = mapPermit(permit);

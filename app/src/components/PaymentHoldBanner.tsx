@@ -7,6 +7,7 @@ interface PaymentHoldBannerProps {
   spotLabel?: string;
   onPay: (method: "cash" | "mercadopago") => void;
   onCancel: () => void;
+  onGoPayByCode?: () => void;
   paying?: boolean;
 }
 
@@ -22,6 +23,7 @@ export function PaymentHoldBanner({
   spotLabel,
   onPay,
   onCancel,
+  onGoPayByCode,
   paying,
 }: PaymentHoldBannerProps) {
   const [remaining, setRemaining] = useState(
@@ -68,6 +70,14 @@ export function PaymentHoldBanner({
           onClick={() => onPay("cash")}
         >
           Efectivo / transferencia
+        </button>
+        <button
+          type="button"
+          className="btn-ghost btn-small"
+          disabled={expired || paying}
+          onClick={() => onGoPayByCode?.()}
+        >
+          Tengo un código de pago
         </button>
         <button
           type="button"

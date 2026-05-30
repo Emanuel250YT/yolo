@@ -1,9 +1,11 @@
 import { useDevTools } from "../dev/DevToolsContext";
 import { getDevNowMs } from "../dev/devConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, unwrapPaginated } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { DataTable, TableActions } from "../components/DataTable";
+import { ConductorPayByCodeForm } from "../components/PaymentOrderDisplay";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { ParkingAlertsBanner } from "../components/ParkingAlertsBanner";
 import { PaymentHoldBanner } from "../components/PaymentHoldBanner";
@@ -33,6 +35,7 @@ const NAV = [
   { id: "lugares", label: "Lugares" },
   { id: "reservar", label: "Reservar" },
   { id: "mis-reservas", label: "Reservas" },
+  { id: "pagar", label: "Pagar" },
 ];
 
 const REGIONS = ["Centro", "Norte", "Sur", "Este", "Oeste"];
@@ -57,6 +60,7 @@ function spotStatusLabel(s: Spot) {
 
 export function ConductorDashboard() {
   const { refreshKey } = useDevTools();
+  const navigate = useNavigate();
   const [tab, setTab] = useState("inicio");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [blocks, setBlocks] = useState<ParkingBlock[]>([]);
@@ -75,6 +79,8 @@ export function ConductorDashboard() {
   );
   const [slotTick, setSlotTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [payCodeError, setPayCodeError] = useState<string | null>(null);
+  const { busy: payCodeLoading, run: runPayCode } = useSubmitLock();
 
   const geo = useGeolocation(tab === "reservar" || tab === "lugares");
 
@@ -309,8 +315,8 @@ export function ConductorDashboard() {
       setError(null);
       try {
         const res = await api.paySpotHold(activeHold.id, method);
-        if (res.payment?.paymentUrl) {
-          window.location.href = res.payment.paymentUrl;
+        if (res.payment?.orderId) {
+          navigate(`/payment-brick?order-id=${encodeURIComponent(res.payment.orderId)}`);
           return;
         }
         setActiveHold(null);
@@ -319,6 +325,26 @@ export function ConductorDashboard() {
         setTab("mis-reservas");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al pagar");
+      }
+    });
+  }
+
+  async function payWithOrderCode(orderId: string) {
+    await runPayCode(async () => {
+      setPayCodeError(null);
+      try {
+        const res = await api.getPaymentOrder(orderId);
+        if (res.order.status === "paid") {
+          setPayCodeError("Esta orden ya fue pagada.");
+          return;
+        }
+        if (res.order.status !== "pending") {
+          setPayCodeError("Esta orden ya no está disponible para pago.");
+          return;
+        }
+        navigate(`/payment-brick?order-id=${encodeURIComponent(orderId)}`);
+      } catch {
+        setPayCodeError("Código no encontrado. Verificá e intentá de nuevo.");
       }
     });
   }
@@ -457,6 +483,11 @@ export function ConductorDashboard() {
               </span>
               <span className="stat-lbl">Plazas libres</span>
             </article>
+          </div>
+          <div className="panel-actions">
+            <button type="button" className="btn-mp" onClick={() => setTab("pagar")}>
+              Pagar con código de orden
+            </button>
           </div>
         </section>
       )}
@@ -672,6 +703,7 @@ export function ConductorDashboard() {
               spotLabel={heldSpot?.label}
               onPay={payHold}
               onCancel={cancelHold}
+              onGoPayByCode={() => setTab("pagar")}
               paying={paying}
             />
           )}
@@ -883,6 +915,21 @@ export function ConductorDashboard() {
                   ) : null,
               },
             ]}
+          />
+        </section>
+      )}
+
+      {tab === "pagar" && (
+        <section className="panel payment-code-panel">
+          <h2>Pagar con código</h2>
+          <p className="panel-desc">
+            Si el permisionario te dio un código de pago, ingresalo acá para
+            completar el cobro con Mercado Pago.
+          </p>
+          <ConductorPayByCodeForm
+            onSubmit={(code) => void payWithOrderCode(code)}
+            loading={payCodeLoading}
+            error={payCodeError}
           />
         </section>
       )}

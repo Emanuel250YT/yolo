@@ -4,11 +4,14 @@ import { api, unwrapPaginated } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useDevTools } from "../dev/DevToolsContext";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
+import { useGeolocation } from "../hooks/useGeolocation";
 import { useToast } from "./Toast";
 import { DataTable, RefCell, TableActions } from "./DataTable";
 import { HistoryTable } from "./HistoryTable";
 import { OutOfHoursNotice } from "./OutOfHoursNotice";
 import { PermisionarioSpotPanel } from "./PermisionarioSpotPanel";
+import { PermitSpotPicker } from "./PermitSpotPicker";
+import { PaymentOrderDisplay } from "./PaymentOrderDisplay";
 import { PriceCard } from "./PriceCard";
 import { SearchableSelect } from "./SearchableSelect";
 import { ShiftBanner } from "./ShiftBanner";
@@ -27,6 +30,7 @@ import type {
   Permit,
   PricingBreakdown,
   QuoteResult,
+  Spot,
   Tariffs,
   UserRole,
 } from "../types";
@@ -114,6 +118,11 @@ export function PermisionarioPanel({
   const [pendingPayment, setPendingPayment] = useState<PaymentOrderInfo | null>(
     null,
   );
+  const [selectedSpotId, setSelectedSpotId] = useState<string | null>(null);
+  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const { busy: loadingQr, run: runLoadQr } = useSubmitLock();
+
+  const geo = useGeolocation(activeTab === "nuevo");
 
   const isStaff = user?.role === "admin" || user?.role === "municipio";
   const canPickZone = isStaff;
@@ -171,6 +180,11 @@ export function PermisionarioPanel({
     if (!zones.length && !assignedCode) return;
     setForm((f) => ({ ...f, zone: assignedCode || zones[0]?.code || "" }));
   }, [assignedCode, zones]);
+
+  useEffect(() => {
+    setSelectedSpotId(null);
+    setSelectedSpot(null);
+  }, [form.zone, assignedCode]);
 
   const minutes = form.hours * 60;
 
@@ -244,7 +258,12 @@ export function PermisionarioPanel({
       toast.error("La patente es obligatoria.");
       return;
     }
+    if (!selectedSpotId) {
+      toast.error("Seleccioná una plaza libre para el vehículo.");
+      return;
+    }
     await runSubmit(async () => {
+      const spotLabel = selectedSpot?.label;
       try {
         const res = await api.createPermit({
           plate: form.plate,
@@ -253,6 +272,9 @@ export function PermisionarioPanel({
           notes: form.notes,
           durationMinutes: minutes,
           paymentMethod,
+          spotId: selectedSpotId,
+          lat: geo.lat ?? undefined,
+          lng: geo.lng ?? undefined,
         });
         setForm((f) => ({
           ...f,
@@ -260,15 +282,37 @@ export function PermisionarioPanel({
           notes: "",
           zone: assignedCode,
         }));
+        setSelectedSpotId(null);
+        setSelectedSpot(null);
         await refreshPermits();
         if (res.payment) {
           setPendingPayment(res.payment);
           toast.info("Mostrá el QR al conductor para completar el pago.");
         } else {
+          toast.success(
+            spotLabel
+              ? `Permiso registrado · plaza ${spotLabel} ocupada.`
+              : "Permiso registrado.",
+          );
           onTabChange?.("permisos");
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Error");
+      }
+    });
+  }
+
+  async function showPermitQr(permit: Permit) {
+    await runLoadQr(async () => {
+      try {
+        const { payment } = await api.getPermitPayment(permit.id);
+        if (!payment) {
+          toast.error("No hay un pago pendiente para este permiso.");
+          return;
+        }
+        setPendingPayment(payment);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error al cargar QR");
       }
     });
   }
@@ -345,23 +389,14 @@ export function PermisionarioPanel({
       {pendingPayment && (
         <div className="payment-qr-modal" role="dialog" aria-modal="true">
           <div className="payment-qr-card panel">
-            <h2>Pago Mercado Pago</h2>
-            <p>
-              El conductor debe escanear el QR o abrir el enlace para pagar{" "}
-              <strong>${pendingPayment.amount.toLocaleString("es-AR")}</strong>.
-            </p>
-            <img
-              className="payment-qr-image"
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(pendingPayment.paymentUrl)}`}
-              alt={`QR de pago orden ${pendingPayment.orderId}`}
-              width={220}
-              height={220}
+            <PaymentOrderDisplay
+              orderId={pendingPayment.orderId}
+              amount={pendingPayment.amount}
+              currencyId={pendingPayment.currencyId}
+              paymentUrl={pendingPayment.paymentUrl}
+              subtitle="El conductor puede escanear el QR o ingresar el código en su app."
+              qrSize={340}
             />
-            <p className="payment-qr-link">
-              <a href={pendingPayment.paymentUrl} target="_blank" rel="noreferrer">
-                {pendingPayment.paymentUrl}
-              </a>
-            </p>
             <div className="action-buttons">
               <button
                 type="button"
@@ -527,11 +562,22 @@ export function PermisionarioPanel({
             </label>
           </form>
 
+          <PermitSpotPicker
+            zoneCode={form.zone || assignedCode}
+            zones={zones}
+            selectedSpotId={selectedSpotId}
+            onSpotChange={(id, spot) => {
+              setSelectedSpotId(id);
+              setSelectedSpot(spot);
+            }}
+            disabled={submitting}
+          />
+
           <div className="action-buttons permit-pay-actions">
             <button
               type="button"
               className="btn-primary"
-              disabled={submitting || !form.plate.trim()}
+              disabled={submitting || !form.plate.trim() || !selectedSpotId}
               onClick={() => createPermit("cash")}
             >
               {submitting
@@ -544,7 +590,10 @@ export function PermisionarioPanel({
               type="button"
               className="btn-mp"
               disabled={
-                submitting || !form.plate.trim() || !user?.mercadoPagoLinked
+                submitting ||
+                !form.plate.trim() ||
+                !selectedSpotId ||
+                !user?.mercadoPagoLinked
               }
               onClick={() => createPermit("mercadopago")}
               title={
@@ -642,6 +691,23 @@ export function PermisionarioPanel({
                     ]
                   : []),
                 {
+                  key: "spot",
+                  header: "Plaza",
+                  render: (p) => p.spotLabel ?? "—",
+                },
+                {
+                  key: "payment",
+                  header: "Pago",
+                  render: (p) =>
+                    p.paymentMethod === "mercadopago"
+                      ? p.paidAt
+                        ? "MP ✓"
+                        : "MP pend."
+                      : p.paymentMethod === "cash"
+                        ? "Efectivo"
+                        : "—",
+                },
+                {
                   key: "net",
                   header: "Importe",
                   render: (p) =>
@@ -668,6 +734,18 @@ export function PermisionarioPanel({
                   header: "Acciones",
                   render: (p) => (
                     <TableActions>
+                      {p.paymentMethod === "mercadopago" &&
+                        !p.paidAt &&
+                        p.status === "active" && (
+                          <button
+                            type="button"
+                            className="btn-small btn-mp"
+                            disabled={loadingQr}
+                            onClick={() => void showPermitQr(p)}
+                          >
+                            Ver QR
+                          </button>
+                        )}
                       <button
                         type="button"
                         className="btn-small"
@@ -699,6 +777,11 @@ export function PermisionarioPanel({
                   minutes={selected.durationMinutes ?? undefined}
                   pricing={selected.pricing as PricingBreakdown}
                 />
+              )}
+              {selected.spotLabel && (
+                <p className="panel-desc">
+                  Plaza asignada: <strong>{selected.spotLabel}</strong>
+                </p>
               )}
               <div className="form-grid">
                 <label>

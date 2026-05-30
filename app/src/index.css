@@ -3488,23 +3488,188 @@ textarea {
   place-items: center;
   background: rgb(0 0 0 / 45%);
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .payment-qr-card {
-  max-width: 420px;
+  max-width: min(480px, 96vw);
   width: 100%;
   text-align: center;
+  margin: 1rem 0;
 }
 
-.payment-qr-image {
+.payment-order-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.payment-order-title {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.payment-order-subtitle {
+  margin: 0;
+  color: var(--muted, #555);
+  font-size: 0.95rem;
+}
+
+.payment-order-amount {
+  margin: 0.25rem 0 0;
+  font-size: clamp(2rem, 8vw, 2.75rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--brand, #1a5fb4);
+}
+
+.payment-order-currency {
   display: block;
-  margin: 1rem auto;
-  border-radius: 8px;
-  background: #fff;
-  padding: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  opacity: 0.75;
+  margin-top: 0.15rem;
 }
 
-.payment-qr-link {
-  font-size: 0.78rem;
+.payment-order-code-block {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 4%);
+  border: 2px dashed rgb(0 0 0 / 12%);
+}
+
+.payment-order-code-label {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  margin-bottom: 0.35rem;
+}
+
+.payment-order-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.payment-order-code {
+  font-family: "Poppins", system-ui, sans-serif;
+  font-size: clamp(1.75rem, 7vw, 2.5rem);
+  letter-spacing: 0.18em;
+  font-weight: 800;
+}
+
+.payment-order-code-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted, #555);
+}
+
+.payment-order-qr {
+  display: block;
+  margin: 0.5rem auto 0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.75rem;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 8%);
+  max-width: 100%;
+  height: auto;
+}
+
+.payment-order-scan {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted, #555);
+}
+
+.payment-order-link {
+  font-size: 0.85rem;
   word-break: break-all;
+}
+
+.payment-code-panel {
+  max-width: 480px;
+}
+
+.payment-code-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.payment-code-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.payment-code-input {
+  font-family: "Poppins", system-ui, sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 0.85rem;
+}
+
+.payment-code-help {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted, #555);
+}
+
+.permit-spot-picker {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgb(0 0 0 / 8%);
+  background: rgb(0 0 0 / 2%);
+}
+
+.permit-spot-picker-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.permit-spot-picker-head .panel-desc {
+  margin: 0 0 0.75rem;
+}
+
+.permit-spot-selected {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.permit-spot-geo-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.permit-spot-geo-hint.muted {
+  color: var(--muted, #555);
+}
+
+.payment-brick-form {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgb(0 0 0 / 8%);
+}
+
+.payment-brick-form-title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.panel-actions {
+  margin-top: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }

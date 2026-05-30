@@ -183,6 +183,10 @@ export interface Permit {
   pricing?: PricingBreakdown | null;
   paymentMethod?: "cash" | "mercadopago" | null;
   paidAt?: string | null;
+  spotId?: string | null;
+  spotLabel?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
   status: string;
   startAt: string;
   endAt: string | null;

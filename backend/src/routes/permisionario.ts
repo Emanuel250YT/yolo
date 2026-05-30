@@ -8,6 +8,7 @@ import {
   listPermits,
   updatePermit,
 } from "../store/permits.js";
+import { getPendingPaymentOrderForPermit } from "../store/paymentOrders.js";
 import { asList, paginationMeta, parsePaginationQuery } from "../lib/pagination.js";
 import { listParkingBlocks } from "../store/parkingBlocks.js";
 import { getParkingZone } from "../store/parkingZones.js";
@@ -197,6 +198,21 @@ router.post("/permits/:id/observations", async (req, res) => {
     const message = err instanceof Error ? err.message : "Error";
     res.status(400).json({ error: message });
   }
+});
+
+router.get("/permits/:id/payment", async (req, res) => {
+  const permit = await getPermit(req.params.id);
+  if (!permit) {
+    return res.status(404).json({ error: "Permiso no encontrado." });
+  }
+  if (
+    req.user!.role === "permisionario" &&
+    permit.permisionarioId !== req.user!.id
+  ) {
+    return res.status(403).json({ error: "No autorizado." });
+  }
+  const payment = await getPendingPaymentOrderForPermit(permit.id);
+  res.json({ payment });
 });
 
 router.get("/permits/:id/history", async (req, res) => {

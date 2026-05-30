@@ -152,6 +152,10 @@ model Permit {
   pricing             Json?
   paymentMethod       PaymentMethod?
   paidAt              DateTime?
+  spotId              String?
+  spot                Spot?          @relation(fields: [spotId], references: [id], onDelete: SetNull)
+  locationLat         Float?
+  locationLng         Float?
   status              PermitStatus   @default(active)
   startAt             DateTime       @default(now())
   endAt               DateTime?
@@ -263,6 +267,7 @@ model Spot {
   updatedAt       DateTime       @updatedAt
   reservations    Reservation[]
   holds           SpotHold[]
+  permits         Permit[]
 }
 
 model SpotHold {

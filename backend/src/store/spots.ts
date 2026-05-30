@@ -5,7 +5,7 @@ import {
   type PaginationParams,
 } from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
-import { pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
+import { distanceMeters, pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 
 export type SpotType = "pago" | "gratuita";
@@ -490,6 +490,68 @@ export async function setSpotOccupancy(
     },
   });
   return mapSpotLive(s, actor.id);
+}
+
+type LiveSpot = ReturnType<typeof mapSpotLive>;
+
+export function pickNearestAvailableSpot(
+  spots: LiveSpot[],
+  lat: number,
+  lng: number,
+): LiveSpot | null {
+  let best: LiveSpot | null = null;
+  let bestDist = Infinity;
+  for (const s of spots) {
+    if (s.status !== "available") continue;
+    if (s.lat == null || s.lng == null) continue;
+    const d = distanceMeters([lat, lng], [s.lat, s.lng]);
+    if (d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
+export async function resolvePermitSpot(opts: {
+  zoneCode: string;
+  spotId?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+}) {
+  await expireStaleHolds();
+  const spots = await listSpotsLive({ zoneCode: opts.zoneCode });
+
+  if (opts.spotId) {
+    const chosen = spots.find((s) => s.id === opts.spotId);
+    if (!chosen) throw new Error("Plaza seleccionada no encontrada.");
+    if (chosen.zone !== opts.zoneCode) {
+      throw new Error("La plaza no pertenece a la zona del permiso.");
+    }
+    if (chosen.status !== "available") {
+      throw new Error("La plaza seleccionada ya no está disponible.");
+    }
+    return chosen;
+  }
+
+  const lat = opts.lat;
+  const lng = opts.lng;
+  if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
+    const nearest = pickNearestAvailableSpot(spots, lat, lng);
+    if (nearest) return nearest;
+  }
+
+  const fallback = spots.find((s) => s.status === "available");
+  if (fallback) return fallback;
+
+  throw new Error("No hay plazas libres en la zona.");
+}
+
+export async function occupySpotForPermit(
+  spotId: string,
+  actor: { id: string; role: string; zone?: string | null },
+) {
+  return setSpotOccupancy(spotId, true, actor);
 }
 
 export async function deleteSpot(spotId: string) {

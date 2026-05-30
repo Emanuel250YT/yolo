@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { PaymentBrickLoader } from "../components/MercadoPagoPaymentBrick";
+import { PaymentOrderDisplay } from "../components/PaymentOrderDisplay";
 import type { PaymentOrderPublic } from "../types";
 
 export function PaymentBrickPage() {
@@ -105,30 +106,36 @@ export function PaymentBrickPage() {
 
   return (
     <div className="payment-brick-page">
-      <header className="payment-brick-header">
-        <h1>Pagar con Mercado Pago</h1>
-        <p>{order.title}</p>
-        {order.description && (
-          <p className="payment-brick-desc">{order.description}</p>
-        )}
-        <p className="payment-brick-amount">
-          Total: ${order.amount.toLocaleString("es-AR")} {order.currencyId}
-        </p>
-        {returnStatus === "failure" && (
-          <p className="payment-brick-error">
-            El pago anterior no se completó. Intentá de nuevo.
-          </p>
-        )}
-      </header>
-
-      <PaymentBrickLoader
-        key={order.orderId}
-        publicKey={publicKey}
+      <PaymentOrderDisplay
         orderId={order.orderId}
         amount={order.amount}
-        preferenceId={order.preferenceId}
-        onPaid={handlePaid}
+        currencyId={order.currencyId}
+        paymentUrl={order.paymentUrl}
+        title=""
+        subtitle={order.title}
+        showQr={false}
+        showLink={false}
       />
+      {order.description && (
+        <p className="payment-brick-desc">{order.description}</p>
+      )}
+      {returnStatus === "failure" && (
+        <p className="payment-brick-error">
+          El pago anterior no se completó. Intentá de nuevo.
+        </p>
+      )}
+
+      <div className="payment-brick-form">
+        <h3 className="payment-brick-form-title">Completar pago</h3>
+        <PaymentBrickLoader
+          key={order.orderId}
+          publicKey={publicKey}
+          orderId={order.orderId}
+          amount={order.amount}
+          preferenceId={order.preferenceId}
+          onPaid={handlePaid}
+        />
+      </div>
     </div>
   );
 }
