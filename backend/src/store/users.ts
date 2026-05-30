@@ -3,24 +3,53 @@ import type { Prisma, Sex, User, UserRole } from "../prisma/client.js";
 import { ROLES } from "../config/auth.js";
 
 const VALID_ROLES = new Set<string>(ROLES);
+import {
+  paginatedResult,
+  parsePaginationQuery,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import type { CitizenDto, SafeUser } from "../types/api.js";
 import { resolveParkingZoneAssignment } from "./zoneAssignment.js";
+import { syncUserParkingZones } from "./userZones.js";
 
 export type { SafeUser };
 
 type UserWithRelations = User & {
   citizen: Prisma.CitizenProfileGetPayload<object> | null;
   parkingZone: { id: string; code: string; name: string } | null;
+  assignedZones?: {
+    parkingZoneId: string;
+    parkingZone: { id: string; code: string; name: string };
+  }[];
 };
 
 const userInclude = {
   citizen: true,
   parkingZone: { select: { id: true, code: true, name: true } },
+  assignedZones: {
+    include: { parkingZone: { select: { id: true, code: true, name: true } } },
+    orderBy: { assignedAt: "asc" as const },
+  },
 } as const;
 
 export function sanitizeUser(user: UserWithRelations): SafeUser {
+  const assignedFromJoin =
+    user.assignedZones?.map((a) => ({
+      id: a.parkingZone.id,
+      code: a.parkingZone.code,
+      name: a.parkingZone.name,
+    })) ?? [];
+
+  const parkingZoneIds =
+    assignedFromJoin.length > 0
+      ? assignedFromJoin.map((z) => z.id)
+      : user.parkingZoneId
+        ? [user.parkingZoneId]
+        : [];
+
   const base: SafeUser = {
     id: user.id,
     ref: user.ref,
@@ -30,7 +59,12 @@ export function sanitizeUser(user: UserWithRelations): SafeUser {
     legajo: user.legajo,
     zone: user.zone,
     parkingZoneId: user.parkingZoneId,
-    zoneName: user.parkingZone?.name ?? null,
+    parkingZoneIds,
+    assignedZones: assignedFromJoin,
+    zoneName:
+      assignedFromJoin.map((z) => z.name).join(", ") ||
+      user.parkingZone?.name ||
+      null,
     active: user.active,
     activationPending: user.activationPending,
     createdByMunicipio: user.createdByMunicipio,
@@ -53,6 +87,19 @@ export function sanitizeUser(user: UserWithRelations): SafeUser {
     };
   }
   return base;
+}
+
+function userSearchWhere(q?: string): Prisma.UserWhereInput | undefined {
+  if (!q) return undefined;
+  return {
+    OR: [
+      { name: { contains: q, mode: "insensitive" } },
+      { email: { contains: q, mode: "insensitive" } },
+      { legajo: { contains: q, mode: "insensitive" } },
+      { ref: { contains: q, mode: "insensitive" } },
+      { zone: { contains: q, mode: "insensitive" } },
+    ],
+  };
 }
 
 export async function findByEmail(email: string) {
@@ -80,18 +127,44 @@ export async function findById(id: string) {
 export async function listUsers(opts: {
   role?: UserRole;
   activationPending?: boolean;
-} = {}) {
-  const users = await prisma.user.findMany({
-    where: {
-      ...(opts.role ? { role: opts.role } : {}),
-      ...(opts.activationPending === true
-        ? { activationPending: true }
-        : {}),
-    },
-    include: userInclude,
-    orderBy: { createdAt: "desc" },
-  });
-  return users.map(sanitizeUser);
+  active?: boolean;
+  excludeRole?: UserRole;
+  pagination?: PaginationParams;
+} = {}): Promise<PaginatedResult<SafeUser> | SafeUser[]> {
+  const where: Prisma.UserWhereInput = {
+    ...(opts.role ? { role: opts.role } : {}),
+    ...(opts.excludeRole ? { role: { not: opts.excludeRole } } : {}),
+    ...(opts.activationPending === true ? { activationPending: true } : {}),
+    ...(opts.active === true ? { active: true } : {}),
+    ...(opts.active === false ? { active: false } : {}),
+    ...(opts.pagination?.q ? userSearchWhere(opts.pagination.q) : {}),
+  };
+
+  if (!opts.pagination) {
+    const users = await prisma.user.findMany({
+      where,
+      include: userInclude,
+      orderBy: { createdAt: "desc" },
+    });
+    return users.map(sanitizeUser);
+  }
+
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      include: userInclude,
+      orderBy: { createdAt: "desc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+
+  return paginatedResult(
+    users.map(sanitizeUser),
+    total,
+    opts.pagination,
+  );
 }
 
 export interface CitizenInput {
@@ -116,6 +189,7 @@ export interface CreateUserInput {
   legajo?: string | null;
   zone?: string | null;
   parkingZoneId?: string | null;
+  parkingZoneIds?: string[];
   active?: boolean;
   activationPending?: boolean;
   citizen?: CitizenInput | null;
@@ -143,12 +217,15 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
 
   let parkingZoneId: string | null = null;
   let zone: string | null = input.zone?.trim() || null;
+  const zoneIds =
+    input.parkingZoneIds ??
+    (input.parkingZoneId ? [input.parkingZoneId] : []);
 
-  if (input.role === "permisionario") {
+  if (input.role === "permisionario" && zoneIds.length === 1 && !input.parkingZoneIds) {
     const assign = await resolveParkingZoneAssignment({
-      parkingZoneId: input.parkingZoneId,
+      parkingZoneId: zoneIds[0],
       zone: input.zone,
-      required: true,
+      required: false,
     });
     parkingZoneId = assign.parkingZoneId;
     zone = assign.zone;
@@ -192,6 +269,16 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
     include: userInclude,
   });
 
+  if (input.role === "permisionario") {
+    if (input.parkingZoneIds !== undefined) {
+      await syncUserParkingZones(user.id, input.parkingZoneIds);
+    } else if (zoneIds.length) {
+      await syncUserParkingZones(user.id, zoneIds);
+    }
+    const refreshed = await findById(user.id);
+    return sanitizeUser(refreshed!);
+  }
+
   return sanitizeUser(user);
 }
 
@@ -207,6 +294,7 @@ export async function updateUser(
     legajo: string | null;
     zone: string | null;
     parkingZoneId: string | null;
+    parkingZoneIds: string[];
     active: boolean;
     activationPending: boolean;
     role: UserRole;
@@ -245,16 +333,24 @@ export async function updateUser(
     data.role = patch.role;
   }
 
-  if (
+  if (role === "permisionario" && patch.parkingZoneIds !== undefined) {
+    await syncUserParkingZones(id, patch.parkingZoneIds);
+  } else if (
     role === "permisionario" &&
     (patch.parkingZoneId !== undefined || patch.zone !== undefined)
   ) {
     const assign = await resolveParkingZoneAssignment({
       parkingZoneId: patch.parkingZoneId ?? existing.parkingZoneId,
       zone: patch.zone ?? existing.zone,
-      required: true,
+      required: false,
     });
-    data.parkingZone = { connect: { id: assign.parkingZoneId! } };
+    if (assign.parkingZoneId) {
+      data.parkingZone = { connect: { id: assign.parkingZoneId } };
+      await syncUserParkingZones(id, [assign.parkingZoneId]);
+    } else {
+      data.parkingZone = { disconnect: true };
+      await syncUserParkingZones(id, []);
+    }
     data.zone = assign.zone;
   } else if (patch.zone !== undefined && role !== "permisionario") {
     data.zone = patch.zone?.trim() || null;
@@ -281,3 +377,5 @@ export async function setPassword(id: string, password: string) {
   });
   return sanitizeUser(user);
 }
+
+export { parsePaginationQuery };

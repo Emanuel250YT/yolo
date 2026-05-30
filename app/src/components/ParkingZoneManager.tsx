@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
-import { ConfirmModal } from "./ConfirmModal";
+import { api, unwrapPaginated } from "../api/client";
 import { DataTable, RefCell, TableActions } from "./DataTable";
 import { ZoneBoundaryMap } from "./ZoneBoundaryMap";
 import { ZonesMap } from "./ZonesMap";
 import { useConfirmModal } from "../hooks/useConfirmModal";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
+import { useToast } from "./Toast";
 import { formatRef } from "../utils/formatRef";
 import { extractZonePolygonRings } from "../utils/zoneGeo";
 import type { EntityNavTarget } from "../utils/entityNav";
@@ -28,9 +29,20 @@ interface ParkingZoneManagerProps {
 }
 
 function zoneApi(mode: ApiMode) {
+  const listPaginated = (query?: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    enabled?: string;
+  }) =>
+    mode === "municipio"
+      ? api.municipioParkingZones(query)
+      : api.adminParkingZones(query);
+
   if (mode === "municipio") {
     return {
-      list: () => api.municipioParkingZones(),
+      list: listPaginated,
+      listMap: () => api.municipioParkingZones({ pageSize: 100 }),
       get: (id: string) => api.municipioParkingZone(id),
       create: (p: Record<string, unknown>) => api.municipioCreateParkingZone(p),
       update: (id: string, p: Record<string, unknown>) =>
@@ -41,7 +53,8 @@ function zoneApi(mode: ApiMode) {
     };
   }
   return {
-    list: () => api.adminParkingZones(),
+    list: listPaginated,
+    listMap: () => api.adminParkingZones({ pageSize: 100 }),
     get: (id: string) => api.adminParkingZone(id),
     create: (p: Record<string, unknown>) => api.adminCreateParkingZone(p),
     update: (id: string, p: Record<string, unknown>) =>
@@ -59,34 +72,47 @@ export function ParkingZoneManager({
 }: ParkingZoneManagerProps) {
   const zonesApi = useMemo(() => zoneApi(apiMode), [apiMode]);
   const [view, setView] = useState<ViewMode>(initialView);
-  const [zones, setZones] = useState<ParkingZone[]>([]);
+  const [mapZones, setMapZones] = useState<ParkingZone[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [polygons, setPolygons] = useState<ParkingPolygon[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState({ w: 0, h: 0 });
   const [enabled, setEnabled] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const { modal, confirm, confirmDanger } = useConfirmModal();
+  const toast = useToast();
+  const { confirm } = useConfirmModal();
 
-  const load = useCallback(async () => {
-    setError(null);
+  const { items: zones, serverPagination, refresh } = usePaginatedTable<ParkingZone>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "zones",
+        await zonesApi.list({
+          page,
+          pageSize,
+          q,
+          enabled: filters.enabled,
+        }),
+      ),
+    enabled: view === "list",
+  });
+
+  const loadMapZones = useCallback(async () => {
     try {
-      const { zones: z } = await zonesApi.list();
-      setZones(z);
+      const { zones: z } = await zonesApi.listMap();
+      setMapZones(z);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al cargar zonas");
+      toast.error(err instanceof Error ? err.message : "Error al cargar zonas");
     }
-  }, [zonesApi]);
+  }, [zonesApi, toast]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (view === "list") void loadMapZones();
+  }, [view, loadMapZones]);
 
   const otherZones = useMemo(
-    () => zones.filter((z) => z.id !== selectedId),
-    [zones, selectedId],
+    () => mapZones.filter((z) => z.id !== selectedId),
+    [mapZones, selectedId],
   );
 
   function resetEditor() {
@@ -101,7 +127,7 @@ export function ParkingZoneManager({
   function startNewZone() {
     resetEditor();
     setView("edit");
-    void load();
+    void loadMapZones();
   }
 
   function backToList() {
@@ -133,7 +159,7 @@ export function ParkingZoneManager({
       }
       setView("edit");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      toast.error(err instanceof Error ? err.message : "Error");
     }
   }
 
@@ -169,11 +195,10 @@ export function ParkingZoneManager({
   async function saveZone(e: React.FormEvent) {
     e.preventDefault();
     if (!polygons.some((p) => p.points.length >= 3)) {
-      setError("Delimitá la zona en el mapa (mínimo 3 puntos).");
+      toast.error("Delimitá la zona en el mapa (mínimo 3 puntos).");
       return;
     }
     setSaving(true);
-    setError(null);
     try {
       const payload: Record<string, unknown> = {
         code: form.code,
@@ -194,10 +219,12 @@ export function ParkingZoneManager({
       } else {
         await zonesApi.create(payload);
       }
-      await load();
+      await refresh();
+      await loadMapZones();
       backToList();
+      toast.success("Zona guardada.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar");
+      toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
     }
@@ -214,35 +241,17 @@ export function ParkingZoneManager({
     try {
       await zonesApi.delete(id);
       if (selectedId === id) backToList();
-      await load();
+      await refresh();
+      await loadMapZones();
+      toast.success("Zona eliminada.");
     } catch (err) {
-      await confirmDanger({
-        title: "Error al eliminar",
-        message: err instanceof Error ? err.message : "Error al eliminar la zona.",
-        confirmLabel: "Entendido",
-        showCancel: false,
-      });
+      toast.error(err instanceof Error ? err.message : "Error al eliminar la zona.");
     }
   }
 
   if (view === "edit") {
     return (
       <div className="zone-manager zone-manager--edit">
-        {modal && (
-          <ConfirmModal
-            open
-            title={modal.title}
-            message={modal.message}
-            variant={modal.variant}
-            confirmLabel={modal.confirmLabel}
-            cancelLabel={modal.cancelLabel}
-            showCancel={modal.showCancel}
-            onConfirm={modal.onConfirm}
-            onCancel={modal.onCancel}
-          />
-        )}
-        {error && <p className="form-error banner-error">{error}</p>}
-
         <header className="zone-editor-head">
           <button type="button" className="btn-small" onClick={backToList}>
             ← Volver al listado
@@ -392,33 +401,18 @@ export function ParkingZoneManager({
 
   return (
     <div className="zone-manager">
-      {modal && (
-        <ConfirmModal
-          open
-          title={modal.title}
-          message={modal.message}
-          variant={modal.variant}
-          confirmLabel={modal.confirmLabel}
-          cancelLabel={modal.cancelLabel}
-          showCancel={modal.showCancel}
-          onConfirm={modal.onConfirm}
-          onCancel={modal.onCancel}
-        />
-      )}
-      {error && <p className="form-error banner-error">{error}</p>}
-
       <section className="panel">
         <h2>Mapa de zonas</h2>
         <p className="panel-desc">
           Vista general de todas las zonas delimitadas. Los colores indican
           ocupación según plazas registradas.
         </p>
-        <ZonesMap spots={[]} zones={zones} height={320} />
+        <ZonesMap spots={[]} zones={mapZones} height={320} />
       </section>
 
       <section className="panel">
         <div className="row-between">
-          <h2>Catálogo de zonas ({zones.length})</h2>
+          <h2>Catálogo de zonas ({serverPagination.total})</h2>
           <button type="button" className="btn-primary btn-small" onClick={startNewZone}>
             + Nueva zona
           </button>
@@ -429,6 +423,7 @@ export function ParkingZoneManager({
           rowKey={(z) => z.id}
           searchPlaceholder="Buscar por ID, nombre o código…"
           emptyMessage="No hay zonas. Creá la primera con el botón superior."
+          serverPagination={serverPagination}
           filters={[
             {
               key: "enabled",

@@ -11,6 +11,8 @@ export interface SafeUser {
   legajo: string | null;
   zone: string | null;
   parkingZoneId: string | null;
+  parkingZoneIds?: string[];
+  assignedZones?: { id: string; code: string; name: string }[];
   zoneName: string | null;
   active: boolean;
   activationPending: boolean;

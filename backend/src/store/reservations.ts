@@ -1,5 +1,10 @@
 import { getNow, getNowMs } from "../services/devClock.js";
 import type { UserRole } from "../prisma/client.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { MAX_RESERVATION_ADVANCE_MS } from "../config/auth.js";
 import { calculateAmount } from "../services/pricing.js";
 import { prisma } from "../lib/prisma.js";
@@ -52,21 +57,53 @@ function mapReservation(r: {
 export async function listReservations(opts: {
   userId?: string;
   status?: string;
-} = {}) {
-  const list = await prisma.reservation.findMany({
-    where: {
-      ...(opts.userId ? { userId: opts.userId } : {}),
-      ...(opts.status
-        ? { status: opts.status as "confirmed" | "cancelled" }
-        : {}),
-    },
-    include: {
-      user: { select: { ref: true } },
-      spot: { select: { ref: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  return list.map(mapReservation);
+  pagination?: PaginationParams;
+} = {}): Promise<PaginatedResult<ReturnType<typeof mapReservation>> | ReturnType<typeof mapReservation>[]> {
+  const search = opts.pagination?.q
+    ? {
+        OR: [
+          { plate: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { spotLabel: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { userName: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { ref: { contains: opts.pagination.q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
+  const where = {
+    ...(opts.userId ? { userId: opts.userId } : {}),
+    ...(opts.status
+      ? { status: opts.status as "confirmed" | "cancelled" }
+      : {}),
+    ...search,
+  };
+
+  if (!opts.pagination) {
+    const list = await prisma.reservation.findMany({
+      where,
+      include: {
+        user: { select: { ref: true } },
+        spot: { select: { ref: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return list.map(mapReservation);
+  }
+
+  const [total, list] = await Promise.all([
+    prisma.reservation.count({ where }),
+    prisma.reservation.findMany({
+      where,
+      include: {
+        user: { select: { ref: true } },
+        spot: { select: { ref: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  return paginatedResult(list.map(mapReservation), total, opts.pagination);
 }
 
 export async function createReservation(

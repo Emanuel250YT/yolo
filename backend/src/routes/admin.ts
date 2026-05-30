@@ -39,9 +39,11 @@ import {
   createUser,
   findById,
   listUsers,
+  parsePaginationQuery,
   setPassword,
   updateUser,
 } from "../store/users.js";
+import { asList, listCount, paginationMeta } from "../lib/pagination.js";
 import { cleanDatabase } from "../store/dbClean.js";
 import { isDevToolsEnabled } from "../config/devTools.js";
 
@@ -58,7 +60,7 @@ router.get("/dashboard", async (_req, res) => {
 });
 
 router.get("/overview", async (_req, res) => {
-  const [users, permits, spots, reservations, sessions, history, parkingZones] =
+  const [usersRaw, permitsRaw, spotsRaw, reservationsRaw, sessionsRaw, historyRaw, parkingZonesRaw] =
     await Promise.all([
       listUsers(),
       listPermits(),
@@ -69,18 +71,31 @@ router.get("/overview", async (_req, res) => {
       listParkingZones(),
     ]);
   res.json({
-    users: users.length,
-    permits: permits.length,
-    spots: spots.length,
-    reservations: reservations.length,
-    sessions: sessions.length,
-    history: history.length,
-    parkingZones: parkingZones.length,
+    users: listCount(usersRaw),
+    permits: listCount(permitsRaw),
+    spots: listCount(spotsRaw),
+    reservations: listCount(reservationsRaw),
+    sessions: listCount(sessionsRaw),
+    history: listCount(historyRaw),
+    parkingZones: listCount(parkingZonesRaw),
   });
 });
 
-router.get("/users", async (_req, res) => {
-  res.json({ users: await listUsers() });
+router.get("/users", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const role =
+    typeof req.query.role === "string" ? (req.query.role as UserRole) : undefined;
+  const active =
+    req.query.active === "true"
+      ? true
+      : req.query.active === "false"
+        ? false
+        : undefined;
+  const result = await listUsers({ role, active, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ users: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ users: result.items, ...paginationMeta(result) });
 });
 
 router.post("/users", async (req, res) => {
@@ -99,6 +114,7 @@ router.post("/users", async (req, res) => {
       legajo: req.body.legajo,
       zone: req.body.zone,
       parkingZoneId: req.body.parkingZoneId,
+      parkingZoneIds: req.body.parkingZoneIds,
       active: req.body.active !== false,
       activationPending: req.body.active === false,
       citizen: req.body.citizen,
@@ -184,21 +200,49 @@ router.post("/users/:id/password", async (req, res) => {
   }
 });
 
-router.get("/permits", async (_req, res) => {
-  res.json({ permits: await listPermits() });
+router.get("/permits", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const status =
+    typeof req.query.status === "string" ? (req.query.status as import("../prisma/client.js").PermitStatus) : undefined;
+  const result = await listPermits({ status, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ permits: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ permits: result.items, ...paginationMeta(result) });
 });
 
 router.get("/history", async (req, res) => {
-  const limit = Number(req.query.limit) || 200;
-  res.json({ history: await listHistory({ limit }) });
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const action = typeof req.query.action === "string" ? req.query.action : undefined;
+  const entityType = typeof req.query.entityType === "string" ? req.query.entityType : undefined;
+  const result = await listHistory({ action, entityType, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ history: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ history: result.items, ...paginationMeta(result) });
 });
 
-router.get("/reservations", async (_req, res) => {
-  res.json({ reservations: await listReservations() });
+router.get("/reservations", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const result = await listReservations({ status, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ reservations: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ reservations: result.items, ...paginationMeta(result) });
 });
 
-router.get("/spots", async (_req, res) => {
-  res.json({ spots: await listSpots() });
+router.get("/spots", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const parkingZoneId =
+    typeof req.query.parkingZoneId === "string" ? req.query.parkingZoneId : undefined;
+  const spotType =
+    req.query.spotType === "gratuita" ? "gratuita" as const : req.query.spotType === "pago" ? "pago" as const : undefined;
+  const result = await listSpots({ pagination, parkingZoneId, spotType });
+  if (Array.isArray(result)) {
+    return res.json({ spots: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ spots: result.items, ...paginationMeta(result) });
 });
 
 router.post("/spots", async (req, res) => {
@@ -221,12 +265,31 @@ router.patch("/spots/:id", async (req, res) => {
   }
 });
 
-router.get("/sessions", async (_req, res) => {
-  res.json({ sessions: await listSessions() });
+router.get("/sessions", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const result = await listSessions({
+    status: typeof req.query.status === "string" ? req.query.status : undefined,
+    pagination,
+  });
+  if (Array.isArray(result)) {
+    return res.json({ sessions: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ sessions: result.items, ...paginationMeta(result) });
 });
 
-router.get("/parking-zones", async (_req, res) => {
-  res.json({ zones: await listParkingZones() });
+router.get("/parking-zones", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const enabled =
+    req.query.enabled === "true"
+      ? true
+      : req.query.enabled === "false"
+        ? false
+        : undefined;
+  const result = await listParkingZones({ pagination, enabled });
+  if (Array.isArray(result)) {
+    return res.json({ zones: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ zones: result.items, ...paginationMeta(result) });
 });
 
 router.get("/parking-zones/:id", async (req, res) => {
@@ -397,7 +460,12 @@ router.post("/parking-zones/:id/spots/along-line", async (req, res) => {
 router.get("/blocks", async (req, res) => {
   const zoneId =
     typeof req.query.zoneId === "string" ? req.query.zoneId : undefined;
-  res.json({ blocks: await listParkingBlocks({ zoneId }) });
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const result = await listParkingBlocks({ zoneId, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ blocks: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ blocks: result.items, ...paginationMeta(result) });
 });
 
 router.post("/blocks", async (req, res) => {

@@ -2,15 +2,13 @@ import { useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { api, setToken } from "../api/client";
 import { useDevTools } from "../dev/DevToolsContext";
-import { ConfirmModal } from "./ConfirmModal";
+import { useToast } from "./Toast";
 
 export function DatabaseCleanPanel() {
   const { enabled, ready, clientEnabled, serverEnabled } = useDevTools();
   const { user, logout } = useAuth();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (!ready || !enabled) {
     if (!ready) return null;
@@ -30,16 +28,15 @@ export function DatabaseCleanPanel() {
 
   async function runClean() {
     setLoading(true);
-    setError(null);
-    setMessage(null);
     try {
       const res = await api.adminCleanDatabase();
       const parts = Object.entries(res.result)
         .filter(([, n]) => n > 0)
         .map(([k, n]) => `${k}: ${n}`)
         .join(", ");
-      setMessage(
+      toast.success(
         parts ? `${res.message} (${parts})` : res.message,
+        "Base de datos vaciada",
       );
       if (user?.role !== "municipio") {
         setToken(null);
@@ -47,11 +44,21 @@ export function DatabaseCleanPanel() {
         window.location.href = "/login";
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al limpiar");
+      toast.error(err instanceof Error ? err.message : "Error al limpiar");
     } finally {
       setLoading(false);
-      setConfirmOpen(false);
     }
+  }
+
+  async function askClean() {
+    const ok = await toast.confirm({
+      title: "Vaciar base de datos",
+      message:
+        "Se eliminarán todos los datos operativos y el resto de usuarios. La cuenta Municipalidad del .env se conservará. Si no sos Municipalidad, tu sesión se cerrará. Esta acción no se puede deshacer.",
+      confirmLabel: "Sí, vaciar todo",
+      variant: "error",
+    });
+    if (ok) void runClean();
   }
 
   return (
@@ -62,29 +69,14 @@ export function DatabaseCleanPanel() {
         usuarios. La cuenta <strong>Municipalidad</strong> (.env) se conserva y
         se re-sincroniza automáticamente. Solo con DevTools activo.
       </p>
-      {message && <p className="form-success banner-success">{message}</p>}
-      {error && <p className="form-error banner-error">{error}</p>}
       <button
         type="button"
         className="btn-small btn-danger"
         disabled={loading}
-        onClick={() => setConfirmOpen(true)}
+        onClick={() => void askClean()}
       >
         {loading ? "Limpiando…" : "Vaciar base de datos"}
       </button>
-
-      {confirmOpen && (
-        <ConfirmModal
-          open
-          title="Vaciar base de datos"
-          variant="error"
-          message="Se eliminarán todos los datos operativos y el resto de usuarios. La cuenta Municipalidad del .env se conservará. Si no sos Municipalidad, tu sesión se cerrará. Esta acción no se puede deshacer."
-          confirmLabel="Sí, vaciar todo"
-          cancelLabel="Cancelar"
-          onConfirm={() => void runClean()}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      )}
     </section>
   );
 }

@@ -74,6 +74,7 @@ model User {
   zone               String?
   parkingZoneId      String?
   parkingZone        ParkingZone?    @relation(fields: [parkingZoneId], references: [id])
+  assignedZones      UserParkingZone[]
   active             Boolean         @default(true)
   activationPending  Boolean         @default(false)
   createdByMunicipio Boolean         @default(false)
@@ -168,6 +169,18 @@ model HistoryEntry {
   @@index([createdAt])
 }
 
+/// Zonas asignadas a un permisionario (0..N)
+model UserParkingZone {
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parkingZoneId String
+  parkingZone   ParkingZone @relation(fields: [parkingZoneId], references: [id], onDelete: Cascade)
+  assignedAt    DateTime    @default(now())
+
+  @@id([userId, parkingZoneId])
+  @@index([parkingZoneId])
+}
+
 /// Zona / sector del SEM (región + cuadras + plazas individuales)
 model ParkingZone {
   id            String         @id @default(uuid())
@@ -186,6 +199,7 @@ model ParkingZone {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   permisionarios User[]
+  assignedUsers  UserParkingZone[]
   blocks        ParkingBlock[]
   spots         Spot[]
 }

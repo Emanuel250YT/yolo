@@ -1,4 +1,9 @@
 import { prisma } from "../lib/prisma.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 
 function mapBlock(b: {
@@ -33,16 +38,47 @@ function mapBlock(b: {
   };
 }
 
-export async function listParkingBlocks(opts?: { zoneId?: string }) {
-  const rows = await prisma.parkingBlock.findMany({
-    where: {
-      enabled: true,
-      ...(opts?.zoneId ? { zoneId: opts.zoneId } : {}),
-    },
-    include: { zone: { select: { code: true, name: true, region: true } } },
-    orderBy: [{ zone: { name: "asc" } }, { name: "asc" }],
-  });
-  return rows.map(mapBlock);
+export async function listParkingBlocks(opts?: {
+  zoneId?: string;
+  pagination?: PaginationParams;
+}): Promise<PaginatedResult<ReturnType<typeof mapBlock>> | ReturnType<typeof mapBlock>[]> {
+  const search = opts?.pagination?.q
+    ? {
+        OR: [
+          { name: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { code: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { street: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { ref: { contains: opts.pagination.q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
+  const where = {
+    enabled: true,
+    ...(opts?.zoneId ? { zoneId: opts.zoneId } : {}),
+    ...search,
+  };
+
+  if (!opts?.pagination) {
+    const rows = await prisma.parkingBlock.findMany({
+      where,
+      include: { zone: { select: { code: true, name: true, region: true } } },
+      orderBy: [{ zone: { name: "asc" } }, { name: "asc" }],
+    });
+    return rows.map(mapBlock);
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.parkingBlock.count({ where }),
+    prisma.parkingBlock.findMany({
+      where,
+      include: { zone: { select: { code: true, name: true, region: true } } },
+      orderBy: [{ zone: { name: "asc" } }, { name: "asc" }],
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  return paginatedResult(rows.map(mapBlock), total, opts.pagination);
 }
 
 export async function createParkingBlock(input: {

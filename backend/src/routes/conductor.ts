@@ -9,6 +9,7 @@ import {
   listParkingAlerts,
 } from "../store/conductorVehicles.js";
 import { syncGovVehicles } from "../store/govVehicleSync.js";
+import { asList, paginationMeta, parsePaginationQuery } from "../lib/pagination.js";
 import { listParkingBlocks } from "../store/parkingBlocks.js";
 import { getParkingZone } from "../store/parkingZones.js";
 import {
@@ -54,10 +55,10 @@ router.get("/spots/live", async (req, res) => {
 });
 
 router.get("/blocks", async (req, res) => {
-  const blocks = await listParkingBlocks({
+  const blocks = asList(await listParkingBlocks({
     zoneId:
       typeof req.query.zoneId === "string" ? req.query.zoneId : undefined,
-  });
+  }));
   res.json({ blocks });
 });
 
@@ -85,7 +86,7 @@ router.get("/blocks/nearby", async (req, res) => {
   if (Number.isNaN(lat) || Number.isNaN(lng)) {
     return res.status(400).json({ error: "lat y lng son obligatorios." });
   }
-  const blocks = await listParkingBlocks();
+  const blocks = asList(await listParkingBlocks());
   const withDist = blocks
     .map((b) => {
       if (b.lat == null || b.lng == null) return { ...b, distanceM: null };
@@ -150,7 +151,13 @@ router.get("/vehicles", async (req, res) => {
     req.user!.role === "admin" && typeof req.query.userId === "string"
       ? req.query.userId
       : req.user!.id;
-  res.json({ vehicles: await listConductorVehicles(userId) });
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const source = typeof req.query.source === "string" ? req.query.source : undefined;
+  const result = await listConductorVehicles(userId, { pagination, source });
+  if (Array.isArray(result)) {
+    return res.json({ vehicles: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ vehicles: result.items, ...paginationMeta(result) });
 });
 
 router.post("/vehicles", async (req, res) => {
@@ -183,9 +190,17 @@ router.get("/parking-alerts", async (req, res) => {
 });
 
 router.get("/reservations", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
   const filter =
-    req.user!.role === "admin" ? {} : { userId: req.user!.id };
-  res.json({ reservations: await listReservations(filter) });
+    req.user!.role === "admin"
+      ? { status, pagination }
+      : { userId: req.user!.id, status, pagination };
+  const result = await listReservations(filter);
+  if (Array.isArray(result)) {
+    return res.json({ reservations: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ reservations: result.items, ...paginationMeta(result) });
 });
 
 router.delete("/reservations/:id", async (req, res) => {

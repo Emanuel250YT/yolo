@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, unwrapPaginated } from "../api/client";
 import { DataTable, LinkedRef, RefCell, TableActions } from "./DataTable";
 import { SearchableSelect } from "./SearchableSelect";
 import { SpotMap } from "./SpotMap";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { formatRef } from "../utils/formatRef";
 import type { EntityNavTarget } from "../utils/entityNav";
 import {
@@ -35,7 +36,8 @@ interface SpotBlockManagerProps {
 function spotsApi(mode: SpotsApiMode) {
   if (mode === "municipio") {
     return {
-      listZones: () => api.municipioParkingZones(),
+      listZones: (query?: { pageSize?: number }) =>
+        api.municipioParkingZones(query ?? { pageSize: 100 }),
       getZone: (id: string) => api.municipioParkingZone(id),
       listSpotsLive: () => api.municipioSpotsLive(),
       createSpot: (
@@ -62,7 +64,8 @@ function spotsApi(mode: SpotsApiMode) {
     };
   }
   return {
-    listZones: () => api.adminParkingZones(),
+    listZones: (query?: { pageSize?: number }) =>
+      api.adminParkingZones(query ?? { pageSize: 100 }),
     getZone: (id: string) => api.adminParkingZone(id),
     listSpotsLive: () => api.adminSpotsLive(),
     createSpot: (
@@ -129,11 +132,47 @@ export function SpotBlockManager({
   const [success, setSuccess] = useState<string | null>(null);
   const [newSpotType, setNewSpotType] = useState<SpotType>("pago");
 
+  const listSpotsPage =
+    apiMode === "municipio"
+      ? api.municipioSpots
+      : api.adminSpots;
+
+  const {
+    items: tableSpots,
+    serverPagination: spotsTablePagination,
+    refresh: refreshTableSpots,
+  } = usePaginatedTable<Spot>({
+    fetchPage: async ({ page, pageSize, q, filters }) => {
+      if (!zoneId) {
+        return {
+          items: [],
+          total: 0,
+          page: 1,
+          pageSize,
+          totalPages: 1,
+          hasMore: false,
+        };
+      }
+      return unwrapPaginated(
+        "spots",
+        await listSpotsPage({
+          page,
+          pageSize,
+          q,
+          parkingZoneId: zoneId,
+          spotType: filters.spotType,
+        }),
+      );
+    },
+    enabled: Boolean(zoneId),
+    resetKey: `${zoneId}:${apiMode}`,
+  });
+
   const load = useCallback(async () => {
     setError(null);
     try {
       const [z, s] = await Promise.all([
-        spotsApiClient.listZones(),
+        spotsApiClient.listZones({ pageSize: 100 }),
         spotsApiClient.listSpotsLive(),
       ]);
       setZones(z.zones);
@@ -294,6 +333,7 @@ export function SpotBlockManager({
   async function refreshSpots() {
     const { spots: live } = await spotsApiClient.listSpotsLive();
     setSpots(live);
+    await refreshTableSpots();
   }
 
   async function addSpotAt(lat: number, lng: number) {
@@ -554,21 +594,13 @@ export function SpotBlockManager({
         <section className="panel">
           <h3>Plazas en {selectedZone.name}</h3>
           <DataTable
-            rows={zoneSpots}
+            rows={tableSpots}
             rowKey={(s) => s.id}
             selectedKey={selectedSpotId}
             searchPlaceholder="Buscar plaza…"
             emptyMessage="Marcá plazas en el mapa con clic izquierdo."
+            serverPagination={spotsTablePagination}
             filters={[
-              {
-                key: "status",
-                label: "Estado",
-                options: [
-                  { value: "available", label: "Disponible" },
-                  { value: "occupied", label: "Ocupada" },
-                  { value: "held", label: "En hold" },
-                ],
-              },
               {
                 key: "spotType",
                 label: "Tipo",

@@ -1,5 +1,10 @@
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 
 export type ParkingPolygon = { points: [number, number][] };
 
@@ -78,14 +83,53 @@ function mapZoneDetail(z: Parameters<typeof mapZone>[0]) {
   };
 }
 
-export async function listParkingZones(opts?: { includeImage?: boolean }) {
-  const rows = await prisma.parkingZone.findMany({
-    orderBy: { name: "asc" },
-  });
-  if (opts?.includeImage) {
-    return rows.map(mapZoneDetail);
+export async function listParkingZones(opts?: {
+  includeImage?: boolean;
+  pagination?: PaginationParams;
+  enabledOnly?: boolean;
+  enabled?: boolean;
+}): Promise<PaginatedResult<ReturnType<typeof mapZone>> | ReturnType<typeof mapZone>[]> {
+  const enabledFilter =
+    opts?.enabledOnly === true
+      ? { enabled: true }
+      : opts?.enabled === true
+        ? { enabled: true }
+        : opts?.enabled === false
+          ? { enabled: false }
+          : {};
+  const search = opts?.pagination?.q
+    ? {
+        OR: [
+          { name: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { code: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { region: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { ref: { contains: opts.pagination.q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
+  const fullWhere = { ...enabledFilter, ...search };
+
+  if (!opts?.pagination) {
+    const rows = await prisma.parkingZone.findMany({
+      where: fullWhere,
+      orderBy: { name: "asc" },
+    });
+    const mapper = opts?.includeImage ? mapZoneDetail : mapZone;
+    return rows.map(mapper);
   }
-  return rows.map(mapZone);
+
+  const [total, rows] = await Promise.all([
+    prisma.parkingZone.count({ where: fullWhere }),
+    prisma.parkingZone.findMany({
+      where: fullWhere,
+      orderBy: { name: "asc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  const mapper = opts?.includeImage ? mapZoneDetail : mapZone;
+  return paginatedResult(rows.map(mapper), total, opts.pagination);
 }
 
 export async function getParkingZone(id: string) {

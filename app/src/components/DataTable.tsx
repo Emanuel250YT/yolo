@@ -18,6 +18,19 @@ export interface DataTableFilter {
   options: { value: string; label: string }[];
 }
 
+interface ServerPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+  loading?: boolean;
+  onPageChange: (page: number) => void;
+  onSearchChange?: (q: string) => void;
+  filterValues?: Record<string, string>;
+  onFilterChange?: (key: string, value: string) => void;
+}
+
 interface DataTableProps<T> {
   rows: T[];
   columns: DataTableColumn<T>[];
@@ -28,6 +41,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   selectedKey?: string | null;
   toolbar?: ReactNode;
+  serverPagination?: ServerPagination;
 }
 
 export function DataTable<T>({
@@ -40,11 +54,13 @@ export function DataTable<T>({
   onRowClick,
   selectedKey,
   toolbar,
+  serverPagination,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [filterValues, setFilterValues] = useState<Record<string, string>>({});
 
   const filtered = useMemo(() => {
+    if (serverPagination) return rows;
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (q) {
@@ -66,7 +82,15 @@ export function DataTable<T>({
       }
       return true;
     });
-  }, [rows, search, filterValues, filters, columns]);
+  }, [rows, search, filterValues, filters, columns, serverPagination]);
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    serverPagination?.onSearchChange?.(value);
+  }
+
+  const totalCount = serverPagination?.total ?? rows.length;
+  const shownCount = serverPagination ? rows.length : filtered.length;
 
   return (
     <div className="data-table-panel">
@@ -76,33 +100,53 @@ export function DataTable<T>({
           className="data-table-search"
           placeholder={searchPlaceholder}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => handleSearchChange(e.target.value)}
           aria-label="Buscar en la tabla"
         />
-        {filters.map((f) => (
-          <label key={f.key} className="data-table-filter">
-            <span>{f.label}</span>
-            <select
-              value={filterValues[f.key] ?? "all"}
-              onChange={(e) =>
-                setFilterValues((prev) => ({
-                  ...prev,
-                  [f.key]: e.target.value,
-                }))
-              }
-            >
-              <option value="all">Todos</option>
-              {f.options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+        {!serverPagination &&
+          filters.map((f) => (
+            <label key={f.key} className="data-table-filter">
+              <span>{f.label}</span>
+              <select
+                value={filterValues[f.key] ?? "all"}
+                onChange={(e) =>
+                  setFilterValues((prev) => ({
+                    ...prev,
+                    [f.key]: e.target.value,
+                  }))
+                }
+              >
+                <option value="all">Todos</option>
+                {f.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        {serverPagination?.onFilterChange &&
+          filters.map((f) => (
+            <label key={f.key} className="data-table-filter">
+              <span>{f.label}</span>
+              <select
+                value={serverPagination.filterValues?.[f.key] ?? "all"}
+                onChange={(e) =>
+                  serverPagination.onFilterChange?.(f.key, e.target.value)
+                }
+              >
+                <option value="all">Todos</option>
+                {f.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
         {toolbar}
         <span className="data-table-count">
-          {filtered.length} / {rows.length}
+          {shownCount} / {totalCount}
         </span>
       </div>
 
@@ -141,6 +185,37 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
+
+      {serverPagination && (
+        <div className="data-table-pagination">
+          <button
+            type="button"
+            className="btn-ghost btn-small"
+            disabled={serverPagination.page <= 1 || serverPagination.loading}
+            onClick={() =>
+              serverPagination.onPageChange(serverPagination.page - 1)
+            }
+          >
+            Anterior
+          </button>
+          <span>
+            Página {serverPagination.page} de {serverPagination.totalPages}
+            {serverPagination.loading ? " · Cargando…" : ""}
+          </span>
+          <button
+            type="button"
+            className="btn-ghost btn-small"
+            disabled={
+              !serverPagination.hasMore || serverPagination.loading
+            }
+            onClick={() =>
+              serverPagination.onPageChange(serverPagination.page + 1)
+            }
+          >
+            Siguiente
+          </button>
+        </div>
+      )}
     </div>
   );
 }

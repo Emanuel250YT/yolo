@@ -16,6 +16,10 @@ import conductorRoutes from "./conductor.js";
 import municipioRoutes from "./municipio.js";
 import permisionarioRoutes from "./permisionario.js";
 import { listParkingZones } from "../store/parkingZones.js";
+import {
+  paginationMeta,
+  parsePaginationQuery,
+} from "../lib/pagination.js";
 
 const router = Router();
 
@@ -39,9 +43,13 @@ router.get("/shifts/status", (req, res) => {
   res.json(getShiftStatusWithDevOverride(override));
 });
 
-router.get("/parking-zones", async (_req, res) => {
-  const zones = await listParkingZones();
-  res.json({ zones: zones.filter((z) => z.enabled) });
+router.get("/parking-zones", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const result = await listParkingZones({ enabledOnly: true, pagination });
+  if (Array.isArray(result)) {
+    return res.json({ zones: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ zones: result.items, ...paginationMeta(result) });
 });
 
 router.post("/quote", optionalAuth, async (req, res) => {
@@ -65,15 +73,21 @@ router.post("/quote", optionalAuth, async (req, res) => {
 });
 
 router.get("/sessions", authenticate, async (req, res) => {
-  let sessions = await listSessions({
-    status: typeof req.query.status === "string" ? req.query.status : undefined,
-  });
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const result = await listSessions({ status, pagination });
+
+  let sessions = Array.isArray(result) ? result : result.items;
   if (req.user!.role === "permisionario") {
     sessions = sessions.filter(
       (s) => !s.permitId || s.zone === req.user!.zone,
     );
   }
-  res.json({ sessions });
+
+  if (Array.isArray(result)) {
+    return res.json({ sessions, total: sessions.length, page: 1, pageSize: sessions.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ sessions, ...paginationMeta({ ...result, items: sessions }) });
 });
 
 router.post(

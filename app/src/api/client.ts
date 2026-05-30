@@ -4,6 +4,7 @@ import type {
   ConductorVehicle,
   DashboardStats,
   HistoryEntry,
+  PaginatedMeta,
   ParkingAlert,
   ParkingBlock,
   ParkingZone,
@@ -83,6 +84,51 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface ListQuery extends Record<string, string | number | boolean | undefined> {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+}
+
+function buildQuery(params?: ListQuery) {
+  const qs = new URLSearchParams();
+  if (!params) return "";
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+  if (params.q) qs.set("q", params.q);
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "page" || k === "pageSize" || k === "q") continue;
+    if (v !== undefined && v !== "") qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
+export function unwrapPaginated<TKey extends string, TItem>(
+  key: TKey,
+  res: PaginatedList<TKey, TItem>,
+) {
+  return {
+    items: res[key],
+    total: res.total,
+    page: res.page,
+    pageSize: res.pageSize,
+    totalPages: res.totalPages,
+    hasMore: res.hasMore,
+  };
+}
+
+export type PaginatedList<TKey extends string, TItem> = Record<TKey, TItem[]> &
+  PaginatedMeta;
+
+function zoneOptionsFromList(zones: ParkingZone[]) {
+  return zones.map((z) => ({
+    value: z.id,
+    label: `${z.name} (${z.code})`,
+    keywords: `${z.ref ?? ""} ${z.region}`,
+  }));
+}
+
 export const api = {
   health: () => request<{ status: string }>("/health"),
 
@@ -102,9 +148,12 @@ export const api = {
 
   me: () => request<{ user: User }>("/auth/me"),
 
-  municipioUsers: () => request<{ users: User[] }>("/municipio/users"),
-  municipioPendingUsers: () =>
-    request<{ users: User[] }>("/municipio/users?pending=true"),
+  municipioUsers: (query?: ListQuery) =>
+    request<PaginatedList<"users", User>>(`/municipio/users${buildQuery(query)}`),
+  municipioPendingUsers: (query?: ListQuery) =>
+    request<PaginatedList<"users", User>>(
+      `/municipio/users${buildQuery({ ...query, pending: "true" })}`,
+    ),
   municipioCreateUser: (payload: Record<string, unknown>) =>
     request<{ user: User }>("/municipio/users", {
       method: "POST",
@@ -130,8 +179,10 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(payload) },
     ),
   municipioDashboard: () => request<DashboardStats>("/municipio/dashboard"),
-  municipioParkingZones: () =>
-    request<{ zones: ParkingZone[] }>("/municipio/parking-zones"),
+  municipioParkingZones: (query?: ListQuery) =>
+    request<PaginatedList<"zones", ParkingZone>>(
+      `/municipio/parking-zones${buildQuery(query)}`,
+    ),
   municipioParkingZone: (id: string) =>
     request<{ zone: ParkingZone }>(`/municipio/parking-zones/${id}`),
   municipioCreateParkingZone: (payload: Record<string, unknown>) =>
@@ -210,7 +261,8 @@ export const api = {
   // Admin
   adminOverview: () => request<AdminOverview>("/admin/overview"),
   adminDashboard: () => request<DashboardStats>("/admin/dashboard"),
-  adminUsers: () => request<{ users: User[] }>("/admin/users"),
+  adminUsers: (query?: ListQuery) =>
+    request<PaginatedList<"users", User>>(`/admin/users${buildQuery(query)}`),
   adminCreateUser: (payload: Record<string, unknown>) =>
     request<{ user: User }>("/admin/users", {
       method: "POST",
@@ -221,16 +273,69 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  adminHistory: () => request<{ history: HistoryEntry[] }>("/admin/history"),
-  adminPermits: () => request<{ permits: Permit[] }>("/admin/permits"),
-  adminReservations: () =>
-    request<{ reservations: Reservation[] }>("/admin/reservations"),
-  adminSpots: () => request<{ spots: Spot[] }>("/admin/spots"),
+  adminHistory: (query?: ListQuery) =>
+    request<PaginatedList<"history", HistoryEntry>>(
+      `/admin/history${buildQuery(query)}`,
+    ),
+  adminPermits: (query?: ListQuery) =>
+    request<PaginatedList<"permits", Permit>>(
+      `/admin/permits${buildQuery(query)}`,
+    ),
+  adminReservations: (query?: ListQuery) =>
+    request<PaginatedList<"reservations", Reservation>>(
+      `/admin/reservations${buildQuery(query)}`,
+    ),
+  adminSpots: (query?: ListQuery) =>
+    request<PaginatedList<"spots", Spot>>(`/admin/spots${buildQuery(query)}`),
 
-  parkingZones: () => request<{ zones: ParkingZone[] }>("/parking-zones"),
+  parkingZones: (query?: ListQuery) =>
+    request<PaginatedList<"zones", ParkingZone>>(
+      `/parking-zones${buildQuery(query)}`,
+    ),
+  parkingZoneOptions: async (params: { page: number; q: string }) => {
+    const res = await request<PaginatedList<"zones", ParkingZone>>(
+      `/parking-zones${buildQuery({ page: params.page, pageSize: 20, q: params.q })}`,
+    );
+    return {
+      options: zoneOptionsFromList(res.zones),
+      total: res.total,
+      page: res.page,
+      pageSize: res.pageSize,
+      totalPages: res.totalPages,
+      hasMore: res.hasMore,
+    };
+  },
 
-  adminParkingZones: () =>
-    request<{ zones: ParkingZone[] }>("/admin/parking-zones"),
+  adminParkingZones: (query?: ListQuery) =>
+    request<PaginatedList<"zones", ParkingZone>>(
+      `/admin/parking-zones${buildQuery(query)}`,
+    ),
+  adminParkingZoneOptions: async (params: { page: number; q: string }) => {
+    const res = await request<PaginatedList<"zones", ParkingZone>>(
+      `/admin/parking-zones${buildQuery({ page: params.page, pageSize: 20, q: params.q })}`,
+    );
+    return {
+      options: zoneOptionsFromList(res.zones),
+      total: res.total,
+      page: res.page,
+      pageSize: res.pageSize,
+      totalPages: res.totalPages,
+      hasMore: res.hasMore,
+    };
+  },
+  municipioParkingZoneOptions: async (params: { page: number; q: string }) => {
+    const res = await request<PaginatedList<"zones", ParkingZone>>(
+      `/municipio/parking-zones${buildQuery({ page: params.page, pageSize: 20, q: params.q })}`,
+    );
+    return {
+      options: zoneOptionsFromList(res.zones),
+      total: res.total,
+      page: res.page,
+      pageSize: res.pageSize,
+      totalPages: res.totalPages,
+      hasMore: res.hasMore,
+    };
+  },
   adminParkingZone: (id: string) =>
     request<{ zone: ParkingZone }>(`/admin/parking-zones/${id}`),
   adminCreateParkingZone: (payload: Record<string, unknown>) =>
@@ -253,9 +358,9 @@ export const api = {
       `/admin/parking-zones/${id}/delete-check`,
     ),
 
-  adminBlocks: (zoneId?: string) =>
-    request<{ blocks: ParkingBlock[] }>(
-      `/admin/blocks${zoneId ? `?zoneId=${zoneId}` : ""}`,
+  adminBlocks: (zoneId?: string, query?: ListQuery) =>
+    request<PaginatedList<"blocks", ParkingBlock>>(
+      `/admin/blocks${buildQuery({ ...query, zoneId })}`,
     ),
   adminCreateBlock: (payload: Record<string, unknown>) =>
     request<{ block: ParkingBlock }>("/admin/blocks", {
@@ -276,6 +381,10 @@ export const api = {
     }),
   adminSpotsLive: () =>
     request<{ spots: Spot[]; refreshedAt: string }>("/admin/spots/live"),
+  municipioSpots: (query?: ListQuery) =>
+    request<PaginatedList<"spots", Spot>>(
+      `/municipio/spots${buildQuery(query)}`,
+    ),
   adminCreateSpotInZone: (
     zoneId: string,
     payload: {
@@ -342,7 +451,10 @@ export const api = {
     }),
 
   // Permisionario
-  permits: () => request<{ permits: Permit[] }>("/permisionario/permits"),
+  permits: (query?: ListQuery) =>
+    request<PaginatedList<"permits", Permit>>(
+      `/permisionario/permits${buildQuery(query)}`,
+    ),
   createPermit: (payload: Record<string, unknown>) =>
     request<{ permit: Permit }>("/permisionario/permits", {
       method: "POST",
@@ -362,8 +474,10 @@ export const api = {
     request<{ history: HistoryEntry[] }>(
       `/permisionario/permits/${id}/history`,
     ),
-  permHistory: () =>
-    request<{ history: HistoryEntry[] }>("/permisionario/history"),
+  permHistory: (query?: ListQuery) =>
+    request<PaginatedList<"history", HistoryEntry>>(
+      `/permisionario/history${buildQuery(query)}`,
+    ),
   permisionarioSpotsLive: (opts?: { blockId?: string; zone?: string }) => {
     const q = new URLSearchParams();
     if (opts?.blockId) q.set("blockId", opts.blockId);
@@ -425,8 +539,10 @@ export const api = {
       `/conductor/holds/${holdId}/pay`,
       { method: "POST", body: JSON.stringify({ paymentMethod }) },
     ),
-  reservations: () =>
-    request<{ reservations: Reservation[] }>("/conductor/reservations"),
+  reservations: (query?: ListQuery) =>
+    request<PaginatedList<"reservations", Reservation>>(
+      `/conductor/reservations${buildQuery(query)}`,
+    ),
   cancelReservation: (id: string) =>
     request<{ reservation: Reservation }>(`/conductor/reservations/${id}`, {
       method: "DELETE",
@@ -435,8 +551,10 @@ export const api = {
     request<{ maxAdvanceMinutes: number; holdPaymentMinutes: number }>(
       "/conductor/config",
     ),
-  conductorVehicles: () =>
-    request<{ vehicles: ConductorVehicle[] }>("/conductor/vehicles"),
+  conductorVehicles: (query?: ListQuery) =>
+    request<PaginatedList<"vehicles", ConductorVehicle>>(
+      `/conductor/vehicles${buildQuery(query)}`,
+    ),
   conductorAddVehicle: (payload: Record<string, unknown>) =>
     request<{ vehicle: ConductorVehicle }>("/conductor/vehicles", {
       method: "POST",
@@ -450,7 +568,10 @@ export const api = {
     request<{ alerts: ParkingAlert[] }>("/conductor/parking-alerts"),
 
   // Sessions (permisionario/admin)
-  listSessions: () => request<{ sessions: Session[] }>("/sessions"),
+  listSessions: (query?: ListQuery) =>
+    request<PaginatedList<"sessions", Session>>(
+      `/sessions${buildQuery(query)}`,
+    ),
   createSession: (payload: Record<string, unknown>) =>
     request<{ session: Session }>("/sessions", {
       method: "POST",

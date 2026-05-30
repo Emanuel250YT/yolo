@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSubmitLock } from "../hooks/useSubmitLock";
-import { api } from "../api/client";
+import { api, unwrapPaginated } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useDevTools } from "../dev/DevToolsContext";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
+import { useToast } from "./Toast";
 import { DataTable, RefCell, TableActions } from "./DataTable";
 import { HistoryTable } from "./HistoryTable";
 import { OutOfHoursNotice } from "./OutOfHoursNotice";
@@ -52,8 +54,7 @@ export function PermisionarioPanel({
 }: PermisionarioPanelProps) {
   const { user } = useAuth();
   const { refreshKey } = useDevTools();
-  const [permits, setPermits] = useState<Permit[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const toast = useToast();
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [tariffs, setTariffs] = useState<Tariffs | null>(null);
   const [shift, setShift] = useState<Awaited<
@@ -61,9 +62,42 @@ export function PermisionarioPanel({
   > | null>(null);
   const [selected, setSelected] = useState<Permit | null>(null);
   const [observation, setObservation] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const { busy: submitting, run: runSubmit } = useSubmitLock();
   const { busy: savingObs, run: runObs } = useSubmitLock();
+
+  const {
+    items: permits,
+    serverPagination: permitsPagination,
+    refresh: refreshPermits,
+  } = usePaginatedTable<Permit>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "permits",
+        await api.permits({ page, pageSize, q, status: filters.status }),
+      ),
+    enabled: activeTab === "permisos",
+    resetKey: refreshKey,
+  });
+
+  const {
+    items: history,
+    serverPagination: historyPagination,
+    refresh: refreshHistory,
+  } = usePaginatedTable<HistoryEntry>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "history",
+        await api.permHistory({
+          page,
+          pageSize,
+          q,
+          action: filters.action,
+          entityType: filters.entityType,
+        }),
+      ),
+    enabled: activeTab === "historial",
+    resetKey: refreshKey,
+  });
 
   const [form, setForm] = useState({
     plate: "",
@@ -84,28 +118,24 @@ export function PermisionarioPanel({
     [user, zones],
   );
 
-  const load = useCallback(async () => {
+  const loadMeta = useCallback(async () => {
     try {
-      const [p, h, s, z, t] = await Promise.all([
-        api.permits(),
-        api.permHistory(),
+      const [s, z, t] = await Promise.all([
         api.shiftStatus(),
-        api.parkingZones(),
+        api.parkingZones({ pageSize: 100 }),
         api.tariffs(),
       ]);
-      setPermits(p.permits);
-      setHistory(h.history);
       setShift(s);
       setZones(z.zones);
       setTariffs(t.tariffs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      toast.error(err instanceof Error ? err.message : "Error");
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    void loadMeta();
+  }, [loadMeta, refreshKey]);
 
   useEffect(() => {
     if (!navTarget) return;
@@ -194,11 +224,10 @@ export function PermisionarioPanel({
 
   async function createPermit(paymentMethod: "cash" | "mercadopago") {
     if (!form.plate.trim()) {
-      setError("La patente es obligatoria.");
+      toast.error("La patente es obligatoria.");
       return;
     }
     await runSubmit(async () => {
-      setError(null);
       try {
         await api.createPermit({
           plate: form.plate,
@@ -214,10 +243,10 @@ export function PermisionarioPanel({
           notes: "",
           zone: assignedCode,
         }));
-        await load();
+        await refreshPermits();
         onTabChange?.("permisos");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error");
+        toast.error(err instanceof Error ? err.message : "Error");
       }
     });
   }
@@ -229,9 +258,10 @@ export function PermisionarioPanel({
         await api.addObservation(selected.id, observation);
         setObservation("");
         setSelected(null);
-        await load();
+        await refreshPermits();
+        await refreshHistory();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error");
+        toast.error(err instanceof Error ? err.message : "Error");
       }
     });
   }
@@ -243,9 +273,10 @@ export function PermisionarioPanel({
         [field]: value,
         observation: `Ajuste de ${field}`,
       });
-      load();
+      await refreshPermits();
+      await refreshHistory();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      toast.error(err instanceof Error ? err.message : "Error");
     }
   }
 
@@ -272,7 +303,6 @@ export function PermisionarioPanel({
       {activeTab !== "nuevo" && (
         <ShiftBanner shift={shift} tariffs={tariffs} />
       )}
-      {error && <p className="form-error banner-error">{error}</p>}
 
       {activeTab === "nuevo" && (
         <section className="panel">
@@ -450,6 +480,7 @@ export function PermisionarioPanel({
               rowKey={(p) => p.id}
               selectedKey={selected?.id ?? null}
               searchPlaceholder="Buscar por ID, patente, zona…"
+              serverPagination={permitsPagination}
               filters={[
                 {
                   key: "status",
@@ -624,7 +655,11 @@ export function PermisionarioPanel({
       {activeTab === "historial" && (
         <section className="panel">
           <h2>Historial de cambios</h2>
-          <HistoryTable rows={history} showActor={isStaff} />
+          <HistoryTable
+            rows={history}
+            showActor={isStaff}
+            serverPagination={historyPagination}
+          />
         </section>
       )}
 

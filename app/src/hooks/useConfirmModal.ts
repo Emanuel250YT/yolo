@@ -1,21 +1,8 @@
-import { useCallback, useState } from "react";
-import type { ConfirmModalVariant } from "../components/ConfirmModal";
-
-interface ModalConfig {
-  title: string;
-  message: string;
-  variant: ConfirmModalVariant;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  showCancel?: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
+import { useCallback } from "react";
+import { useToast } from "../components/Toast";
 
 export function useConfirmModal() {
-  const [modal, setModal] = useState<ModalConfig | null>(null);
-
-  const close = useCallback(() => setModal(null), []);
+  const toast = useToast();
 
   const confirm = useCallback(
     (opts: {
@@ -24,40 +11,19 @@ export function useConfirmModal() {
       confirmLabel?: string;
       cancelLabel?: string;
     }) =>
-      new Promise<boolean>((resolve) => {
-        setModal({
-          title: opts.title,
-          message: opts.message,
-          variant: "confirm",
-          confirmLabel: opts.confirmLabel ?? "Eliminar",
-          cancelLabel: opts.cancelLabel ?? "Cancelar",
-          showCancel: true,
-          onConfirm: () => {
-            close();
-            resolve(true);
-          },
-          onCancel: () => {
-            close();
-            resolve(false);
-          },
-        });
+      toast.confirm({
+        ...opts,
+        variant: "warning",
+        confirmLabel: opts.confirmLabel ?? "Eliminar",
       }),
-    [close],
+    [toast],
   );
 
   const warn = useCallback(
     (title: string, message: string) => {
-      setModal({
-        title,
-        message,
-        variant: "warning",
-        confirmLabel: "Entendido",
-        showCancel: false,
-        onConfirm: close,
-        onCancel: close,
-      });
+      toast.warning(message, title);
     },
-    [close],
+    [toast],
   );
 
   const confirmDanger = useCallback(
@@ -67,27 +33,21 @@ export function useConfirmModal() {
       confirmLabel?: string;
       cancelLabel?: string;
       showCancel?: boolean;
-    }) =>
-      new Promise<boolean>((resolve) => {
-        setModal({
-          title: opts.title,
-          message: opts.message,
-          variant: "warning",
-          confirmLabel: opts.confirmLabel ?? "Eliminar",
-          cancelLabel: opts.cancelLabel ?? "Cancelar",
-          showCancel: opts.showCancel ?? true,
-          onConfirm: () => {
-            close();
-            resolve(true);
-          },
-          onCancel: () => {
-            close();
-            resolve(false);
-          },
-        });
-      }),
-    [close],
+    }) => {
+      if (opts.showCancel === false) {
+        toast.warning(opts.message, opts.title);
+        return Promise.resolve(true);
+      }
+      return toast.confirm({
+        title: opts.title,
+        message: opts.message,
+        variant: "warning",
+        confirmLabel: opts.confirmLabel ?? "Eliminar",
+        cancelLabel: opts.cancelLabel ?? "Cancelar",
+      });
+    },
+    [toast],
   );
 
-  return { modal, confirm, warn, confirmDanger, close };
+  return { modal: null, confirm, warn, confirmDanger, close: () => {} };
 }

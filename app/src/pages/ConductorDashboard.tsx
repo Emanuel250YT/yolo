@@ -1,9 +1,10 @@
 import { useDevTools } from "../dev/DevToolsContext";
 import { getDevNowMs } from "../dev/devConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, unwrapPaginated } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { DataTable, TableActions } from "../components/DataTable";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { ParkingAlertsBanner } from "../components/ParkingAlertsBanner";
 import { PaymentHoldBanner } from "../components/PaymentHoldBanner";
 import { SpotMap } from "../components/SpotMap";
@@ -59,8 +60,8 @@ export function ConductorDashboard() {
   const [tab, setTab] = useState("inicio");
   const [spots, setSpots] = useState<Spot[]>([]);
   const [blocks, setBlocks] = useState<ParkingBlock[]>([]);
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [vehicles, setVehicles] = useState<ConductorVehicle[]>([]);
+  const [hasVehicles, setHasVehicles] = useState(false);
+  const [vehicleCount, setVehicleCount] = useState(0);
   const [alerts, setAlerts] = useState<ParkingAlert[]>([]);
   const [maxAdvance, setMaxAdvance] = useState(30);
   const [holdPaymentMinutes, setHoldPaymentMinutes] = useState(10);
@@ -76,6 +77,42 @@ export function ConductorDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const geo = useGeolocation(tab === "reservar" || tab === "lugares");
+
+  const {
+    items: vehicles,
+    serverPagination: vehiclesPagination,
+    refresh: refreshVehicles,
+  } = usePaginatedTable<ConductorVehicle>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "vehicles",
+        await api.conductorVehicles({
+          page,
+          pageSize,
+          q,
+          source: filters.source,
+        }),
+      ),
+    enabled: tab === "vehiculos",
+  });
+
+  const {
+    items: reservations,
+    serverPagination: reservationsPagination,
+    refresh: refreshReservations,
+  } = usePaginatedTable<Reservation>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "reservations",
+        await api.reservations({
+          page,
+          pageSize,
+          q,
+          status: filters.status,
+        }),
+      ),
+    enabled: tab === "mis-reservas",
+  });
 
   const [vehicleForm, setVehicleForm] = useState({
     plate: "",
@@ -152,19 +189,18 @@ export function ConductorDashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [s, r, c, v, a, b] = await Promise.all([
+      const [s, c, v, a, b] = await Promise.all([
         api.spotsLive(),
-        api.reservations(),
         api.conductorConfig(),
-        api.conductorVehicles(),
+        api.conductorVehicles({ page: 1, pageSize: 1 }),
         api.conductorParkingAlerts(),
         api.conductorBlocks(),
       ]);
       setSpots(s.spots);
-      setReservations(r.reservations);
       setMaxAdvance(c.maxAdvanceMinutes);
       setHoldPaymentMinutes(c.holdPaymentMinutes ?? 10);
-      setVehicles(v.vehicles);
+      setHasVehicles(v.total > 0);
+      setVehicleCount(v.total);
       setAlerts(a.alerts);
       setBlocks(b.blocks);
       setForm((f) => ({
@@ -302,7 +338,9 @@ export function ConductorDashboard() {
       try {
         await api.conductorAddVehicle(vehicleForm);
         setVehicleForm({ plate: "", vehicleType: "auto", label: "" });
-        await load();
+        await refreshVehicles();
+        setHasVehicles(true);
+        setVehicleCount((c) => c + 1);
         setTab("vehiculos");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al registrar");
@@ -315,7 +353,9 @@ export function ConductorDashboard() {
     setPendingId(id);
     try {
       await api.conductorDeleteVehicle(id);
-      await load();
+      await refreshVehicles();
+      setVehicleCount((c) => Math.max(0, c - 1));
+      setHasVehicles(vehiclesPagination.total > 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -328,7 +368,7 @@ export function ConductorDashboard() {
     setPendingId(id);
     try {
       await api.cancelReservation(id);
-      await load();
+      await refreshReservations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
@@ -400,7 +440,7 @@ export function ConductorDashboard() {
           <ZonesMap spots={spots} onZoneSelect={setMapZone} selectedZone={mapZone} />
           <div className="stat-grid">
             <article className="stat-card">
-              <span className="stat-val">{vehicles.length}</span>
+              <span className="stat-val">{vehicleCount}</span>
               <span className="stat-lbl">Vehículos</span>
             </article>
             <article className="stat-card">
@@ -420,7 +460,7 @@ export function ConductorDashboard() {
       {tab === "vehiculos" && (
         <div className="split-panel">
           <section className="panel">
-            <h2>Mis vehículos ({vehicles.length})</h2>
+            <h2>Mis vehículos ({vehiclesPagination.total})</h2>
             <p className="panel-desc">
               Patentes registradas manualmente o desde el padrón municipal
               (automático).
@@ -430,6 +470,7 @@ export function ConductorDashboard() {
               rowKey={(v) => v.id}
               searchPlaceholder="Buscar patente…"
               emptyMessage="Todavía no registraste vehículos."
+              serverPagination={vehiclesPagination}
               filters={[
                 {
                   key: "source",
@@ -757,7 +798,7 @@ export function ConductorDashboard() {
             imageBounds={defaultImageBounds(mapCenter)}
             selectedSpotId={selectedSpotId}
             onSpotSelect={selectSpot}
-            disabled={holding || !!activeHold || !vehicles.length}
+            disabled={holding || !!activeHold || !hasVehicles}
             hint="Tocá una plaza verde en el mapa para reservarla. Imagen de referencia superpuesta al callejero."
           />
 
@@ -768,31 +809,77 @@ export function ConductorDashboard() {
       {tab === "mis-reservas" && (
         <section className="panel">
           <h2>Mis reservas</h2>
-          <div className="card-list">
-            {reservations.map((r) => (
-              <article key={r.id} className="list-card">
-                <strong>{r.plate}</strong> — {r.spotLabel}
-                <p>
-                  ${r.pricing.net.toLocaleString("es-AR")} ·{" "}
-                  {formatDurationHours(r.durationMinutes)} · {r.status}
-                </p>
-                <time className="meta">
-                  Inicio:{" "}
-                  {new Date(r.scheduledStart).toLocaleString("es-AR")}
-                </time>
-                {r.status === "confirmed" && (
-                  <button
-                    type="button"
-                    className="btn-small btn-danger"
-                    disabled={!!pendingId}
-                    onClick={() => cancelReservation(r.id)}
-                  >
-                    Cancelar
-                  </button>
-                )}
-              </article>
-            ))}
-          </div>
+          <DataTable
+            rows={reservations}
+            rowKey={(r) => r.id}
+            searchPlaceholder="Buscar por patente, plaza…"
+            emptyMessage="No tenés reservas."
+            serverPagination={reservationsPagination}
+            filters={[
+              {
+                key: "status",
+                label: "Estado",
+                options: [
+                  { value: "confirmed", label: "Confirmada" },
+                  { value: "cancelled", label: "Cancelada" },
+                ],
+              },
+            ]}
+            columns={[
+              {
+                key: "plate",
+                header: "Patente",
+                searchValues: (r) => [r.plate, r.spotLabel],
+                render: (r) => <strong>{r.plate}</strong>,
+              },
+              {
+                key: "spot",
+                header: "Plaza",
+                searchValues: (r) => [r.spotLabel, r.zone],
+                render: (r) => r.spotLabel,
+              },
+              {
+                key: "amount",
+                header: "Importe",
+                render: (r) => `$${r.pricing.net.toLocaleString("es-AR")}`,
+              },
+              {
+                key: "duration",
+                header: "Duración",
+                render: (r) => formatDurationHours(r.durationMinutes),
+              },
+              {
+                key: "status",
+                header: "Estado",
+                filterKey: "status",
+                searchValues: (r) => [r.status],
+                render: (r) => r.status,
+              },
+              {
+                key: "when",
+                header: "Inicio",
+                render: (r) =>
+                  new Date(r.scheduledStart).toLocaleString("es-AR"),
+              },
+              {
+                key: "actions",
+                header: "Acciones",
+                render: (r) =>
+                  r.status === "confirmed" ? (
+                    <TableActions>
+                      <button
+                        type="button"
+                        className="btn-small btn-danger"
+                        disabled={!!pendingId}
+                        onClick={() => cancelReservation(r.id)}
+                      >
+                        Cancelar
+                      </button>
+                    </TableActions>
+                  ) : null,
+              },
+            ]}
+          />
         </section>
       )}
     </AppShell>

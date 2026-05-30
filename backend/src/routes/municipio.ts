@@ -21,10 +21,12 @@ import {
   createSpotAtZonePoint,
   createSpotsAlongLine,
   getSpot,
+  listSpots,
   listSpotsLive,
   upsertSpot,
 } from "../store/spots.js";
-import { createUser, findById, listUsers, updateUser } from "../store/users.js";
+import { createUser, findById, listUsers, parsePaginationQuery, updateUser } from "../store/users.js";
+import { paginationMeta } from "../lib/pagination.js";
 
 function asJson(value: unknown): Prisma.InputJsonValue | undefined {
   if (value == null) return undefined;
@@ -38,8 +40,19 @@ router.get("/dashboard", async (_req, res) => {
   res.json(await getDashboardStats());
 });
 
-router.get("/parking-zones", async (_req, res) => {
-  res.json({ zones: await listParkingZones() });
+router.get("/parking-zones", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const enabled =
+    req.query.enabled === "true"
+      ? true
+      : req.query.enabled === "false"
+        ? false
+        : undefined;
+  const result = await listParkingZones({ pagination, enabled });
+  if (Array.isArray(result)) {
+    return res.json({ zones: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ zones: result.items, ...paginationMeta(result) });
 });
 
 router.get("/parking-zones/:id", async (req, res) => {
@@ -99,6 +112,19 @@ router.get("/spots/live", async (_req, res) => {
     spots: await listSpotsLive(),
     refreshedAt: new Date().toISOString(),
   });
+});
+
+router.get("/spots", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const parkingZoneId =
+    typeof req.query.parkingZoneId === "string" ? req.query.parkingZoneId : undefined;
+  const spotType =
+    req.query.spotType === "gratuita" ? "gratuita" as const : req.query.spotType === "pago" ? "pago" as const : undefined;
+  const result = await listSpots({ pagination, parkingZoneId, spotType });
+  if (Array.isArray(result)) {
+    return res.json({ spots: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ spots: result.items, ...paginationMeta(result) });
 });
 
 router.post("/parking-zones/:id/spots", async (req, res) => {
@@ -231,11 +257,40 @@ router.delete("/spots/:id", async (req, res) => {
 
 router.get("/users", async (req, res) => {
   const pending = req.query.pending === "true";
-  const users = await listUsers(
-    pending ? { activationPending: true } : {},
-  );
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const role =
+    typeof req.query.role === "string" ? (req.query.role as UserRole) : undefined;
+  const active =
+    req.query.active === "true"
+      ? true
+      : req.query.active === "false"
+        ? false
+        : undefined;
+  const result = await listUsers({
+    activationPending: pending || undefined,
+    excludeRole: "municipio",
+    role,
+    active,
+    pagination,
+  });
+
+  if (Array.isArray(result)) {
+    return res.json({
+      users: result,
+      total: result.length,
+      page: 1,
+      pageSize: result.length,
+      hasMore: false,
+      totalPages: 1,
+    });
+  }
   res.json({
-    users: users.filter((u) => u.role !== "municipio"),
+    users: result.items,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+    hasMore: result.hasMore,
   });
 });
 
@@ -255,6 +310,7 @@ router.post("/users", async (req, res) => {
       legajo: req.body.legajo,
       zone: req.body.zone,
       parkingZoneId: req.body.parkingZoneId,
+      parkingZoneIds: req.body.parkingZoneIds,
       active: req.body.active !== false,
       activationPending: req.body.active === false,
       createdByMunicipio: true,
@@ -331,8 +387,7 @@ router.patch("/users/:id/deactivate", async (req, res) => {
         error: "No podés desactivar tu propia cuenta.",
       });
     }
-    const users = await listUsers();
-    const target = users.find((u) => u.id === req.params.id);
+    const target = await findById(req.params.id);
     if (target?.role === "municipio") {
       return res.status(400).json({
         error: "No se puede desactivar la cuenta Municipio.",

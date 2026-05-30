@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, unwrapPaginated } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { DataTable, RefCell } from "../components/DataTable";
 import { DashboardSummary } from "../components/DashboardSummary";
@@ -8,6 +8,7 @@ import { ParkingZoneManager } from "../components/ParkingZoneManager";
 import { SpotBlockManager } from "../components/SpotBlockManager";
 import { PermisionarioPanel } from "../components/PermisionarioPanel";
 import { UsersManager } from "../components/UsersManager";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import type { Reservation } from "../types";
 import { formatRef } from "../utils/formatRef";
 import {
@@ -31,11 +32,24 @@ const OPS_TABS = new Set(["permisos", "nuevo", "historial"]);
 
 export function AdminDashboard() {
   const [tab, setTab] = useState("resumen");
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [entityNav, setEntityNav] = useState<EntityNavTarget | null>(null);
 
   const fetchDashboard = useCallback(() => api.adminDashboard(), []);
+
+  const { items: reservations, serverPagination: reservationsPagination } =
+    usePaginatedTable<Reservation>({
+      fetchPage: async ({ page, pageSize, q, filters }) =>
+        unwrapPaginated(
+          "reservations",
+          await api.adminReservations({
+            page,
+            pageSize,
+            q,
+            status: filters.status,
+          }),
+        ),
+      enabled: tab === "reservas",
+    });
 
   const handleEntityNav = useCallback((target: EntityNavTarget) => {
     setTab(ENTITY_TAB[target.kind] ?? "resumen");
@@ -48,20 +62,6 @@ export function AdminDashboard() {
   }, [handleEntityNav]);
 
   const clearEntityNav = useCallback(() => setEntityNav(null), []);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const r = await api.adminReservations();
-      setReservations(r.reservations);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al cargar");
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   return (
     <AppShell
@@ -77,8 +77,6 @@ export function AdminDashboard() {
         right: { action: "menu", label: "Menú" },
       }}
     >
-      {error && <p className="form-error banner-error">{error}</p>}
-
       {tab === "resumen" && (
         <>
           <DashboardSummary fetchStats={fetchDashboard} />
@@ -120,6 +118,7 @@ export function AdminDashboard() {
             rows={reservations}
             rowKey={(r) => r.id}
             searchPlaceholder="Buscar por ID, patente, plaza…"
+            serverPagination={reservationsPagination}
             filters={[
               {
                 key: "status",
@@ -135,7 +134,9 @@ export function AdminDashboard() {
                 key: "ref",
                 header: "ID",
                 searchValues: (r) => [r.ref, r.id, r.plate],
-                render: (r) => <RefCell refId={formatRef(r)} entityKind="reservation" />,
+                render: (r) => (
+                  <RefCell refId={formatRef(r)} entityKind="reservation" />
+                ),
               },
               {
                 key: "spotRef",
@@ -205,7 +206,6 @@ export function AdminDashboard() {
           />
         </section>
       )}
-
     </AppShell>
   );
 }

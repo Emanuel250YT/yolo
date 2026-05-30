@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { api, unwrapPaginated } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useSubmitLock } from "../hooks/useSubmitLock";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
+import { useToast } from "./Toast";
 import { DataTable, RefCell, TableActions } from "./DataTable";
 import {
   EMPTY_PERSONAL_INFO,
@@ -11,9 +13,8 @@ import {
 } from "./PersonalInfoFields";
 import { PasswordInput } from "./PasswordInput";
 import { RegisterStepper } from "./RegisterStepper";
-import { SearchableSelect } from "./SearchableSelect";
-import type { ParkingZone, User, UserRole } from "../types";
-import { zoneIdOptions } from "../utils/selectOptions";
+import { AsyncMultiSelect } from "./AsyncSearchableSelect";
+import type { User, UserRole } from "../types";
 import { formatRef } from "../utils/formatRef";
 import type { EntityNavTarget } from "../utils/entityNav";
 
@@ -27,7 +28,7 @@ const ROLE_OPTIONS: {
   {
     id: "permisionario",
     label: "Permisionario",
-    desc: "Requiere legajo y zona asignada del catálogo.",
+    desc: "Requiere legajo. Podés asignar cero, una o varias zonas.",
   },
   {
     id: "admin",
@@ -53,19 +54,35 @@ type UsersApiMode = "admin" | "municipio";
 function usersApi(mode: UsersApiMode) {
   if (mode === "municipio") {
     return {
-      list: () => api.municipioUsers(),
+      list: (query?: { page?: number; pageSize?: number; q?: string; role?: string; active?: string }) =>
+        api.municipioUsers({
+          page: query?.page,
+          pageSize: query?.pageSize,
+          q: query?.q,
+          role: query?.role,
+          active: query?.active,
+        }),
       create: (payload: Record<string, unknown>) =>
         api.municipioCreateUser(payload),
       update: (id: string, payload: Record<string, unknown>) =>
         api.municipioUpdateUser(id, payload),
+      zoneOptions: api.municipioParkingZoneOptions,
     };
   }
   return {
-    list: () => api.adminUsers(),
+    list: (query?: { page?: number; pageSize?: number; q?: string; role?: string; active?: string }) =>
+      api.adminUsers({
+        page: query?.page,
+        pageSize: query?.pageSize,
+        q: query?.q,
+        role: query?.role,
+        active: query?.active,
+      }),
     create: (payload: Record<string, unknown>) =>
       api.adminCreateUser(payload),
     update: (id: string, payload: Record<string, unknown>) =>
       api.adminUpdateUser(id, payload),
+    zoneOptions: api.adminParkingZoneOptions,
   };
 }
 
@@ -79,45 +96,37 @@ export function UsersManager({
   onNavHandled?: () => void;
 } = {}) {
   const usersApiClient = useMemo(() => usersApi(apiMode), [apiMode]);
+  const toast = useToast();
   const { user: actor } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
-  const [zones, setZones] = useState<ParkingZone[]>([]);
+
+  const { items: users, serverPagination, refresh } = usePaginatedTable<User>({
+    fetchPage: async ({ page, pageSize, q, filters }) =>
+      unwrapPaginated(
+        "users",
+        await usersApiClient.list({
+          page,
+          pageSize,
+          q,
+          role: filters.role,
+          active: filters.active,
+        }),
+      ),
+  });
+
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<UserRole>("permisionario");
   const [name, setName] = useState("");
   const [legajo, setLegajo] = useState("");
-  const [parkingZoneId, setParkingZoneId] = useState("");
+  const [parkingZoneIds, setParkingZoneIds] = useState<string[]>([]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [personal, setPersonal] = useState<PersonalInfoForm>(EMPTY_PERSONAL_INFO);
   const [editing, setEditing] = useState<User | null>(null);
-  const [editZoneId, setEditZoneId] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [editZoneIds, setEditZoneIds] = useState<string[]>([]);
   const { busy: creating, run: runCreate } = useSubmitLock();
   const { busy: savingZone, run: runSaveZone } = useSubmitLock();
   const { busy: togglingId, run: runToggle } = useSubmitLock();
-
-  const zoneOpts = useMemo(() => zoneIdOptions(zones), [zones]);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [u, z] = await Promise.all([
-        usersApiClient.list(),
-        api.parkingZones(),
-      ]);
-      setUsers(u.users);
-      setZones(z.zones);
-      setParkingZoneId((prev) => prev || z.zones[0]?.id || "");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al cargar");
-    }
-  }, [usersApiClient]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   useEffect(() => {
     if (!navTarget || navTarget.kind !== "user") return;
@@ -130,23 +139,21 @@ export function UsersManager({
       ) ?? null;
     if (u && u.role === "permisionario") {
       setEditing(u);
-      setEditZoneId(
-        u.parkingZoneId ??
-          zones.find((z) => z.code === u.zone)?.id ??
-          zones[0]?.id ??
-          "",
+      setEditZoneIds(
+        u.parkingZoneIds?.length
+          ? u.parkingZoneIds
+          : u.parkingZoneId
+            ? [u.parkingZoneId]
+            : [],
       );
       onNavHandled?.();
     }
-  }, [navTarget, users, zones, onNavHandled]);
+  }, [navTarget, users, onNavHandled]);
 
   function validateStep2(): string | null {
     if (!name.trim()) return "El nombre completo es obligatorio.";
     if (role === "permisionario" && !legajo.trim()) {
       return "El legajo es obligatorio para permisionarios.";
-    }
-    if (role === "permisionario" && !parkingZoneId) {
-      return "Seleccioná la zona asignada.";
     }
     return validatePersonalInfo(personal);
   }
@@ -161,17 +168,15 @@ export function UsersManager({
   }
 
   function goNext() {
-    setError(null);
     const err = step === 2 ? validateStep2() : null;
     if (err) {
-      setError(err);
+      toast.error(err);
       return;
     }
     setStep((s) => Math.min(3, s + 1));
   }
 
   function goBack() {
-    setError(null);
     setStep((s) => Math.max(1, s - 1));
   }
 
@@ -184,18 +189,17 @@ export function UsersManager({
     setPassword("");
     setPassword2("");
     setPersonal(EMPTY_PERSONAL_INFO);
-    setParkingZoneId(zones[0]?.id ?? "");
+    setParkingZoneIds([]);
   }
 
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     const err = validateStep3();
     if (err) {
-      setError(err);
+      toast.error(err);
       return;
     }
     await runCreate(async () => {
-      setError(null);
       try {
         const payload: Record<string, unknown> = {
           email,
@@ -206,25 +210,34 @@ export function UsersManager({
         };
         if (role === "permisionario") {
           payload.legajo = legajo;
-          payload.parkingZoneId = parkingZoneId;
+          payload.parkingZoneIds = parkingZoneIds;
         }
         await usersApiClient.create(payload);
+        toast.success("Usuario creado correctamente.");
         resetForm();
-        await load();
+        await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error");
+        toast.error(err instanceof Error ? err.message : "Error");
       }
     });
   }
 
   async function toggleUser(u: User) {
     if (!actor || !adminCanToggle(actor.id, u) || togglingId) return;
+    const action = u.active ? "desactivar" : "activar";
+    const ok = await toast.confirm({
+      title: u.active ? "Desactivar usuario" : "Activar usuario",
+      message: `¿Confirmás ${action} a ${u.name}?`,
+      confirmLabel: u.active ? "Desactivar" : "Activar",
+    });
+    if (!ok) return;
     await runToggle(async () => {
       try {
         await usersApiClient.update(u.id, { active: !u.active });
-        await load();
+        toast.success(u.active ? "Usuario desactivado." : "Usuario activado.");
+        await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error");
+        toast.error(err instanceof Error ? err.message : "Error");
       }
     });
   }
@@ -234,20 +247,19 @@ export function UsersManager({
     await runSaveZone(async () => {
       try {
         await usersApiClient.update(editing.id, {
-          parkingZoneId: editZoneId,
+          parkingZoneIds: editZoneIds,
         });
+        toast.success("Zonas actualizadas.");
         setEditing(null);
-        await load();
+        await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al guardar zona");
+        toast.error(err instanceof Error ? err.message : "Error al guardar zonas");
       }
     });
   }
 
   return (
     <div className="crud-layout">
-      {error && <p className="form-error banner-error">{error}</p>}
-
       <div className="split-panel">
         <section className="panel">
           <h2>Crear cuenta</h2>
@@ -277,10 +289,7 @@ export function UsersManager({
                           name={`${apiMode}-role`}
                           value={opt.id}
                           checked={role === opt.id}
-                          onChange={() => {
-                            setRole(opt.id);
-                            setError(null);
-                          }}
+                          onChange={() => setRole(opt.id)}
                         />
                         <span className="role-label">{opt.label}</span>
                         <span className="role-desc">{opt.desc}</span>
@@ -315,14 +324,17 @@ export function UsersManager({
                       />
                     </div>
                     <div className="field">
-                      <label htmlFor="admin-zone">Zona asignada *</label>
-                      <SearchableSelect
-                        id="admin-zone"
-                        required
-                        value={parkingZoneId}
-                        onChange={setParkingZoneId}
-                        options={zoneOpts}
+                      <label htmlFor="admin-zones">Zonas asignadas</label>
+                      <AsyncMultiSelect
+                        id="admin-zones"
+                        values={parkingZoneIds}
+                        onChange={setParkingZoneIds}
+                        loadPage={usersApiClient.zoneOptions}
+                        emptyLabel="Ninguna (sin zonas asignadas)"
                       />
+                      <p className="field-hint">
+                        Opcional. Podés asignar una o más zonas después.
+                      </p>
                     </div>
                   </>
                 )}
@@ -400,6 +412,7 @@ export function UsersManager({
             rows={users}
             rowKey={(u) => u.id}
             searchPlaceholder="Buscar por ID, nombre, email…"
+            serverPagination={serverPagination}
             filters={[
               {
                 key: "role",
@@ -408,7 +421,6 @@ export function UsersManager({
                   { value: "permisionario", label: "Permisionario" },
                   { value: "admin", label: "Admin" },
                   { value: "conductor", label: "Conductor" },
-                  { value: "municipio", label: "Municipio" },
                 ],
               },
               {
@@ -456,23 +468,28 @@ export function UsersManager({
               {
                 key: "role",
                 header: "Rol",
-                filterKey: "role",
                 searchValues: (u) => [u.role],
                 render: (u) => <span className="chip">{u.role}</span>,
               },
               {
                 key: "zone",
-                header: "Zona",
-                searchValues: (u) => [u.zoneName, u.zone],
+                header: "Zonas",
+                searchValues: (u) => [
+                  u.zoneName,
+                  u.zone,
+                  ...(u.assignedZones?.map((z) => z.name) ?? []),
+                ],
                 render: (u) =>
                   u.role === "permisionario"
-                    ? u.zoneName ?? u.zone ?? "—"
+                    ? u.zoneName ??
+                      u.assignedZones?.map((z) => z.name).join(", ") ??
+                      u.zone ??
+                      "—"
                     : "—",
               },
               {
                 key: "active",
                 header: "Estado",
-                filterKey: "active",
                 searchValues: (u) => [String(u.active)],
                 render: (u) => (u.active ? "Activo" : "Inactivo"),
               },
@@ -489,22 +506,23 @@ export function UsersManager({
                           className="btn-small"
                           onClick={() => {
                             setEditing(u);
-                            setEditZoneId(
-                              u.parkingZoneId ??
-                                zones.find((z) => z.code === u.zone)?.id ??
-                                zones[0]?.id ??
-                                "",
+                            setEditZoneIds(
+                              u.parkingZoneIds?.length
+                                ? u.parkingZoneIds
+                                : u.parkingZoneId
+                                  ? [u.parkingZoneId]
+                                  : [],
                             );
                           }}
                         >
-                          Editar
+                          Zonas
                         </button>
                       )}
                       {canToggle ? (
                         <button
                           type="button"
                           className="btn-small"
-                          disabled={togglingId}
+                          disabled={Boolean(togglingId)}
                           onClick={() => toggleUser(u)}
                         >
                           {u.active ? "Desactivar" : "Activar"}
@@ -523,14 +541,15 @@ export function UsersManager({
 
       {editing && (
         <section className="panel panel-edit">
-          <h2>Zona de {editing.name}</h2>
+          <h2>Zonas de {editing.name}</h2>
           <div className="form-grid form-grid-inline">
             <label>
-              Zona asignada
-              <SearchableSelect
-                value={editZoneId}
-                onChange={setEditZoneId}
-                options={zoneOpts}
+              Zonas asignadas
+              <AsyncMultiSelect
+                values={editZoneIds}
+                onChange={setEditZoneIds}
+                loadPage={usersApiClient.zoneOptions}
+                emptyLabel="Ninguna (sin zonas asignadas)"
               />
             </label>
             <button

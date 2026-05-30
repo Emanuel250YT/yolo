@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { DevToolsProvider } from "./dev/DevToolsContext";
 import { DevToolsPanel } from "./dev/DevToolsPanel";
+import { ToastProvider } from "./components/Toast";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { AdminDashboard } from "./pages/AdminDashboard";
@@ -45,31 +46,33 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-      <DevToolsProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route
-              path="/login"
-              element={
-                <PublicOnly>
-                  <LoginPage />
-                </PublicOnly>
-              }
-            />
-            <Route
-              path="/registro"
-              element={
-                <PublicOnly>
-                  <RegisterPage />
-                </PublicOnly>
-              }
-            />
-            <Route path="/" element={<RoleHome />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-          <DevToolsPanel />
-        </BrowserRouter>
-      </DevToolsProvider>
+      <ToastProvider>
+        <DevToolsProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <PublicOnly>
+                    <LoginPage />
+                  </PublicOnly>
+                }
+              />
+              <Route
+                path="/registro"
+                element={
+                  <PublicOnly>
+                    <RegisterPage />
+                  </PublicOnly>
+                }
+              />
+              <Route path="/" element={<RoleHome />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+            <DevToolsPanel />
+          </BrowserRouter>
+        </DevToolsProvider>
+      </ToastProvider>
     </AuthProvider>
   );
 }

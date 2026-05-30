@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../api/client";
+import { useCallback, useState } from "react";
+import { api, unwrapPaginated } from "../api/client";
 import { AppShell } from "../components/AppShell";
 import { DashboardSummary } from "../components/DashboardSummary";
 import { ParkingZoneManager } from "../components/ParkingZoneManager";
@@ -8,7 +8,9 @@ import { PermisionarioPanel } from "../components/PermisionarioPanel";
 import { SpotBlockManager } from "../components/SpotBlockManager";
 import { TariffManager } from "../components/TariffManager";
 import { UsersManager } from "../components/UsersManager";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { useSubmitLock } from "../hooks/useSubmitLock";
+import { useToast } from "../components/Toast";
 import type { User } from "../types";
 import { formatRef } from "../utils/formatRef";
 
@@ -28,33 +30,30 @@ const OPS_TABS = new Set(["permisos", "nuevo", "historial"]);
 
 export function MunicipioDashboard() {
   const [tab, setTab] = useState("resumen");
-  const [pending, setPending] = useState<User[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
+  const toast = useToast();
   const { busy: activating, run: runActivate } = useSubmitLock();
   const fetchDashboard = useCallback(() => api.municipioDashboard(), []);
 
-  const loadPending = useCallback(async () => {
-    try {
-      const { users } = await api.municipioPendingUsers();
-      setPending(users);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
-    }
-  }, []);
-
-  useEffect(() => {
-    loadPending();
-  }, [loadPending]);
+  const { items: pending, serverPagination, refresh } =
+    usePaginatedTable<User>({
+      fetchPage: async ({ page, pageSize, q }) =>
+        unwrapPaginated(
+          "users",
+          await api.municipioPendingUsers({ page, pageSize, q }),
+        ),
+      enabled: tab === "pendientes",
+    });
 
   async function activate(id: string) {
     await runActivate(async () => {
-      setMessage(null);
-      const res = await api.municipioActivateUser(id);
-      setMessage(res.message);
-      await loadPending();
-      setTab("usuarios");
+      try {
+        const res = await api.municipioActivateUser(id);
+        toast.success(res.message);
+        await refresh();
+        setTab("usuarios");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error");
+      }
     });
   }
 
@@ -71,9 +70,6 @@ export function MunicipioDashboard() {
         right: { action: "menu", label: "Menú" },
       }}
     >
-      {message && <p className="success-inline">{message}</p>}
-      {error && <p className="form-error banner-error">{error}</p>}
-
       {tab === "resumen" && (
         <DashboardSummary fetchStats={fetchDashboard} showPendingUsers />
       )}
@@ -92,6 +88,7 @@ export function MunicipioDashboard() {
             rowKey={(u) => u.id}
             searchPlaceholder="Buscar por ID, nombre, email…"
             emptyMessage="No hay cuentas pendientes de habilitación."
+            serverPagination={serverPagination}
             columns={[
               {
                 key: "ref",

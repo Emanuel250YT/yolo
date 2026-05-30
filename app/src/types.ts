@@ -15,6 +15,18 @@ export interface CitizenProfile {
   plate: string | null;
 }
 
+export interface PaginatedMeta {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export interface PaginatedResponse<T> extends PaginatedMeta {
+  items: T[];
+}
+
 export interface User {
   id: string;
   ref?: string | null;
@@ -24,6 +36,8 @@ export interface User {
   legajo: string | null;
   zone: string | null;
   parkingZoneId: string | null;
+  parkingZoneIds?: string[];
+  assignedZones?: { id: string; code: string; name: string }[];
   zoneName: string | null;
   active: boolean;
   activationPending?: boolean;
@@ -57,6 +71,7 @@ export interface RegisterPayload {
   legajo?: string;
   zone?: string;
   parkingZoneId?: string;
+  parkingZoneIds?: string[];
   citizen?: Partial<CitizenProfile>;
 }
 

@@ -1,4 +1,5 @@
 import { listHistory } from "./history.js";
+import { asList, listCount } from "../lib/pagination.js";
 import { listPermits } from "./permits.js";
 import { listParkingZones } from "./parkingZones.js";
 import { listReservations } from "./reservations.js";
@@ -32,7 +33,7 @@ function pricingNet(pricing: unknown): number {
 }
 
 export async function getDashboardStats() {
-  const [users, permits, reservations, sessions, spotsLive, zones, history] =
+  const [usersRaw, permitsRaw, reservationsRaw, sessionsRaw, spotsLive, zonesRaw, historyRaw] =
     await Promise.all([
       listUsers(),
       listPermits(),
@@ -42,6 +43,13 @@ export async function getDashboardStats() {
       listParkingZones(),
       listHistory({ limit: 500 }),
     ]);
+
+  const users = asList(usersRaw);
+  const permits = asList(permitsRaw);
+  const reservations = asList(reservationsRaw);
+  const sessions = asList(sessionsRaw);
+  const zones = asList(zonesRaw);
+  const history = asList(historyRaw);
 
   const today = startOfDay();
 

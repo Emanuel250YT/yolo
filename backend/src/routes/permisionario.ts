@@ -8,20 +8,29 @@ import {
   listPermits,
   updatePermit,
 } from "../store/permits.js";
+import { asList, paginationMeta, parsePaginationQuery } from "../lib/pagination.js";
 import { listParkingBlocks } from "../store/parkingBlocks.js";
 import { getParkingZone } from "../store/parkingZones.js";
 import { listSpotsLive, setSpotOccupancy } from "../store/spots.js";
+import { getUserAssignedZoneCodes, userCanAccessZone } from "../store/userZones.js";
 import { findById } from "../store/users.js";
 
 const router = Router();
 router.use(authenticate, requireRole("admin", "permisionario", "municipio"));
 
 router.get("/permits", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const status =
+    typeof req.query.status === "string" ? (req.query.status as import("../prisma/client.js").PermitStatus) : undefined;
   const filter =
     req.user!.role === "permisionario"
-      ? { permisionarioId: req.user!.id }
-      : {};
-  res.json({ permits: await listPermits(filter) });
+      ? { permisionarioId: req.user!.id, status, pagination }
+      : { status, pagination };
+  const result = await listPermits(filter);
+  if (Array.isArray(result)) {
+    return res.json({ permits: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ permits: result.items, ...paginationMeta(result) });
 });
 
 router.get("/zones/:id", async (req, res) => {
@@ -31,9 +40,12 @@ router.get("/zones/:id", async (req, res) => {
   }
   if (req.user!.role === "permisionario") {
     const u = await findById(req.user!.id);
-    if (u?.zone !== zone.code && u?.parkingZoneId !== zone.id) {
-      return res.status(403).json({ error: "No autorizado." });
-    }
+    if (!u) return res.status(403).json({ error: "No autorizado." });
+    const ok = await userCanAccessZone(req.user!.id, zone, {
+      parkingZoneId: u.parkingZoneId,
+      zone: u.zone,
+    });
+    if (!ok) return res.status(403).json({ error: "No autorizado." });
   }
   res.json({ zone });
 });
@@ -43,9 +55,17 @@ router.get("/blocks", async (req, res) => {
     typeof req.query.zoneId === "string" ? req.query.zoneId : undefined;
   if (req.user!.role === "permisionario") {
     const u = await findById(req.user!.id);
+    const codes = await getUserAssignedZoneCodes(req.user!.id);
+    if (codes.length) {
+      const blocks = asList(await listParkingBlocks({ zoneId }));
+      const filtered = blocks.filter((b) =>
+        codes.includes(b.zoneCode ?? ""),
+      );
+      return res.json({ blocks: filtered });
+    }
     if (u?.parkingZoneId) zoneId = u.parkingZoneId;
   }
-  const blocks = await listParkingBlocks({ zoneId });
+  const blocks = asList(await listParkingBlocks({ zoneId }));
   res.json({ blocks });
 });
 
@@ -56,8 +76,23 @@ router.get("/spots/live", async (req, res) => {
     typeof req.query.blockId === "string" ? req.query.blockId : undefined;
 
   if (req.user!.role === "permisionario") {
-    const u = await findById(req.user!.id);
-    zoneCode = u?.zone ?? zoneCode;
+    const codes = await getUserAssignedZoneCodes(req.user!.id);
+    if (codes.length > 1) {
+      const spots = await listSpotsLive({
+        blockId,
+        viewerUserId: req.user!.id,
+      });
+      return res.json({
+        spots: spots.filter((s) => codes.includes(s.zone)),
+        refreshedAt: new Date().toISOString(),
+      });
+    }
+    if (codes.length === 1) {
+      zoneCode = codes[0];
+    } else {
+      const u = await findById(req.user!.id);
+      zoneCode = u?.zone ?? zoneCode;
+    }
   }
 
   res.json({
@@ -151,11 +186,18 @@ router.get("/permits/:id/history", async (req, res) => {
 });
 
 router.get("/history", async (req, res) => {
+  const pagination = parsePaginationQuery(req.query as Record<string, unknown>);
+  const action = typeof req.query.action === "string" ? req.query.action : undefined;
+  const entityType = typeof req.query.entityType === "string" ? req.query.entityType : undefined;
   const filter =
     req.user!.role === "permisionario"
-      ? { userId: req.user!.id, limit: Number(req.query.limit) || 100 }
-      : { limit: Number(req.query.limit) || 200 };
-  res.json({ history: await listHistory(filter) });
+      ? { userId: req.user!.id, action, entityType, pagination }
+      : { action, entityType, pagination };
+  const result = await listHistory(filter);
+  if (Array.isArray(result)) {
+    return res.json({ history: result, total: result.length, page: 1, pageSize: result.length, hasMore: false, totalPages: 1 });
+  }
+  res.json({ history: result.items, ...paginationMeta(result) });
 });
 
 export default router;

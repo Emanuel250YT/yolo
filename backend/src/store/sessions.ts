@@ -1,4 +1,9 @@
 import { getNow } from "../services/devClock.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -59,14 +64,43 @@ export async function createSession(input: {
   return mapSession(session);
 }
 
-export async function listSessions(opts: { status?: string } = {}) {
-  const sessions = await prisma.parkingSession.findMany({
-    where: opts.status
-      ? { status: opts.status as "active" | "completed" }
-      : undefined,
-    orderBy: { startedAt: "desc" },
-  });
-  return sessions.map(mapSession);
+export async function listSessions(opts: {
+  status?: string;
+  pagination?: PaginationParams;
+} = {}): Promise<PaginatedResult<ReturnType<typeof mapSession>> | ReturnType<typeof mapSession>[]> {
+  const search = opts.pagination?.q
+    ? {
+        OR: [
+          { plate: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { zone: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { ref: { contains: opts.pagination.q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
+  const where = {
+    ...(opts.status ? { status: opts.status as "active" | "completed" } : {}),
+    ...search,
+  };
+
+  if (!opts.pagination) {
+    const sessions = await prisma.parkingSession.findMany({
+      where,
+      orderBy: { startedAt: "desc" },
+    });
+    return sessions.map(mapSession);
+  }
+
+  const [total, sessions] = await Promise.all([
+    prisma.parkingSession.count({ where }),
+    prisma.parkingSession.findMany({
+      where,
+      orderBy: { startedAt: "desc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  return paginatedResult(sessions.map(mapSession), total, opts.pagination);
 }
 
 export async function getSession(id: string) {

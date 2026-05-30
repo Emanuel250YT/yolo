@@ -1,5 +1,6 @@
-import { DataTable, RefCell } from "./DataTable";
+import { DataTable, RefCell, type DataTableFilter } from "./DataTable";
 import type { HistoryEntry } from "../types";
+import type { ServerPaginationProps } from "../hooks/usePaginatedTable";
 
 const ACTION_LABELS: Record<string, string> = {
   create: "Alta",
@@ -24,37 +25,42 @@ interface HistoryTableProps {
   rows: HistoryEntry[];
   showActor?: boolean;
   searchPlaceholder?: string;
+  serverPagination?: ServerPaginationProps;
 }
 
 export function HistoryTable({
   rows,
   showActor = true,
   searchPlaceholder = "Buscar en historial…",
+  serverPagination,
 }: HistoryTableProps) {
+  const filters: DataTableFilter[] = [
+    {
+      key: "action",
+      label: "Acción",
+      options: Object.entries(ACTION_LABELS).map(([value, label]) => ({
+        value,
+        label,
+      })),
+    },
+    {
+      key: "entityType",
+      label: "Tipo",
+      options: Object.entries(ENTITY_LABELS).map(([value, label]) => ({
+        value,
+        label,
+      })),
+    },
+  ];
+
   return (
     <DataTable
       rows={rows}
       rowKey={(h) => h.id}
       searchPlaceholder={searchPlaceholder}
       emptyMessage="Sin registros en el historial."
-      filters={[
-        {
-          key: "action",
-          label: "Acción",
-          options: Object.entries(ACTION_LABELS).map(([value, label]) => ({
-            value,
-            label,
-          })),
-        },
-        {
-          key: "entity",
-          label: "Tipo",
-          options: Object.entries(ENTITY_LABELS).map(([value, label]) => ({
-            value,
-            label,
-          })),
-        },
-      ]}
+      serverPagination={serverPagination}
+      filters={filters}
       columns={[
         {
           key: "when",
@@ -83,7 +89,7 @@ export function HistoryTable({
         {
           key: "entity",
           header: "Elemento",
-          filterKey: "entity",
+          filterKey: "entityType",
           searchValues: (h) => [
             h.entityType,
             h.entityLabel,

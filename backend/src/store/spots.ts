@@ -1,4 +1,9 @@
 import { getNow, getNowMs } from "../services/devClock.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
 import { pointsAlongPolyline, polylineLengthMeters } from "../lib/polyline.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
@@ -108,8 +113,74 @@ export async function listSpotsLive(opts: {
   return mapped;
 }
 
-export async function listSpots(opts: { onlyAvailable?: boolean } = {}) {
-  return listSpotsLive(opts);
+export async function listSpots(opts: {
+  onlyAvailable?: boolean;
+  pagination?: PaginationParams;
+  parkingZoneId?: string;
+  zoneCode?: string;
+  spotType?: SpotType;
+} = {}): Promise<PaginatedResult<ReturnType<typeof mapSpotLive>> | ReturnType<typeof mapSpotLive>[]> {
+  await expireStaleHolds();
+
+  const search = opts.pagination?.q
+    ? {
+        OR: [
+          { label: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { zone: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { address: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          { ref: { contains: opts.pagination.q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
+  const where = {
+    enabled: true,
+    ...(opts.parkingZoneId ? { parkingZoneId: opts.parkingZoneId } : {}),
+    ...(opts.zoneCode ? { zone: opts.zoneCode } : {}),
+    ...(opts.spotType ? { spotType: opts.spotType } : {}),
+    ...search,
+  };
+
+  if (!opts.pagination) {
+    const spots = await prisma.spot.findMany({
+      where,
+      include: {
+        block: { select: { name: true, street: true, code: true } },
+        holds: {
+          where: { expiresAt: { gt: getNow() } },
+          select: { id: true, userId: true, expiresAt: true },
+        },
+      },
+      orderBy: [{ blockId: "asc" }, { row: "asc" }, { col: "asc" }],
+    });
+    let mapped = spots.map((s) => mapSpotLive(s));
+    if (opts.onlyAvailable) {
+      mapped = mapped.filter((s) => s.status === "available");
+    }
+    return mapped;
+  }
+
+  const [total, spots] = await Promise.all([
+    prisma.spot.count({ where }),
+    prisma.spot.findMany({
+      where,
+      include: {
+        block: { select: { name: true, street: true, code: true } },
+        holds: {
+          where: { expiresAt: { gt: getNow() } },
+          select: { id: true, userId: true, expiresAt: true },
+        },
+      },
+      orderBy: [{ blockId: "asc" }, { row: "asc" }, { col: "asc" }],
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  let mapped = spots.map((s) => mapSpotLive(s));
+  if (opts.onlyAvailable) {
+    mapped = mapped.filter((s) => s.status === "available");
+  }
+  return paginatedResult(mapped, total, opts.pagination);
 }
 
 export async function getSpot(id: string, viewerUserId?: string) {

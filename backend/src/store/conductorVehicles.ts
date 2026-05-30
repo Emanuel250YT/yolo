@@ -1,4 +1,9 @@
 import type { VehicleType } from "../prisma/client.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
 
 function mapVehicle(v: {
@@ -46,13 +51,42 @@ export async function listConductorPlates(userId: string): Promise<string[]> {
   return vehicles.map((v) => v.plate);
 }
 
-export async function listConductorVehicles(userId: string) {
+export async function listConductorVehicles(
+  userId: string,
+  opts?: { pagination?: PaginationParams; source?: string },
+) {
   await ensureProfilePlate(userId);
-  const vehicles = await prisma.conductorVehicle.findMany({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-  return vehicles.map(mapVehicle);
+  const where = {
+    userId,
+    ...(opts?.source ? { source: opts.source } : {}),
+    ...(opts?.pagination?.q
+      ? {
+          OR: [
+            { plate: { contains: opts.pagination.q, mode: "insensitive" as const } },
+            { label: { contains: opts.pagination.q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  if (!opts?.pagination) {
+    const vehicles = await prisma.conductorVehicle.findMany({
+      where,
+      orderBy: { createdAt: "asc" },
+    });
+    return vehicles.map(mapVehicle);
+  }
+
+  const [total, vehicles] = await Promise.all([
+    prisma.conductorVehicle.count({ where }),
+    prisma.conductorVehicle.findMany({
+      where,
+      orderBy: { createdAt: "asc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  return paginatedResult(vehicles.map(mapVehicle), total, opts.pagination);
 }
 
 export async function addConductorVehicle(

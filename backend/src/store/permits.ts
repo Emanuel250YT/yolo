@@ -1,4 +1,9 @@
 import type { PaymentMethod, PermitStatus, Prisma, VehicleType } from "../prisma/client.js";
+import {
+  paginatedResult,
+  type PaginatedResult,
+  type PaginationParams,
+} from "../lib/pagination.js";
 import { prisma } from "../lib/prisma.js";
 import { generateUniqueRef } from "../lib/shortRef.js";
 import { calculateAmount } from "../services/pricing.js";
@@ -42,24 +47,50 @@ function mapPermit(p: {
   };
 }
 
+function permitSearchWhere(q?: string): Prisma.PermitWhereInput | undefined {
+  if (!q) return undefined;
+  return {
+    OR: [
+      { plate: { contains: q, mode: "insensitive" } },
+      { zone: { contains: q, mode: "insensitive" } },
+      { permisionarioName: { contains: q, mode: "insensitive" } },
+      { ref: { contains: q, mode: "insensitive" } },
+    ],
+  };
+}
+
 export async function listPermits(opts: {
   permisionarioId?: string;
   status?: PermitStatus;
-} = {}) {
+  pagination?: PaginationParams;
+} = {}): Promise<PaginatedResult<ReturnType<typeof mapPermit>> | ReturnType<typeof mapPermit>[]> {
   await expireStalePermits();
-  const permits = await prisma.permit.findMany({
-    where: {
-      ...(opts.permisionarioId
-        ? { permisionarioId: opts.permisionarioId }
-        : {}),
-      ...(opts.status ? { status: opts.status } : {}),
-    },
-    include: {
-      permisionario: { select: { ref: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  return permits.map(mapPermit);
+  const where: Prisma.PermitWhereInput = {
+    ...(opts.permisionarioId ? { permisionarioId: opts.permisionarioId } : {}),
+    ...(opts.status ? { status: opts.status } : {}),
+    ...(opts.pagination?.q ? permitSearchWhere(opts.pagination.q) : {}),
+  };
+
+  if (!opts.pagination) {
+    const permits = await prisma.permit.findMany({
+      where,
+      include: { permisionario: { select: { ref: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return permits.map(mapPermit);
+  }
+
+  const [total, permits] = await Promise.all([
+    prisma.permit.count({ where }),
+    prisma.permit.findMany({
+      where,
+      include: { permisionario: { select: { ref: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: opts.pagination.skip,
+      take: opts.pagination.take,
+    }),
+  ]);
+  return paginatedResult(permits.map(mapPermit), total, opts.pagination);
 }
 
 export async function getPermit(id: string) {
