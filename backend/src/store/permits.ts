@@ -162,12 +162,6 @@ export async function createPermit(
   const vehicleType =
     input.vehicleType === "motorcycle" ? "motorcycle" : "auto";
   const tariffs = await getTariffs();
-  const pricing = calculateAmount({
-    vehicleType,
-    minutes: durationMinutes,
-    digitalPayment: paymentMethod === "mercadopago",
-    tariffs,
-  });
 
   const startAt = input.startAt ? new Date(input.startAt) : new Date();
   const endAt = input.endAt
@@ -190,6 +184,21 @@ export async function createPermit(
     spotId: input.spotId,
     lat: locationLat,
     lng: locationLng,
+  });
+
+  const isFreeSpot = resolvedSpot.spotType === "gratuita";
+  if (isFreeSpot && paymentMethod === "mercadopago") {
+    throw new Error(
+      "Las plazas gratuitas solo se registran en efectivo ($0).",
+    );
+  }
+
+  const pricing = calculateAmount({
+    vehicleType,
+    minutes: durationMinutes,
+    digitalPayment: paymentMethod === "mercadopago",
+    tariffs,
+    free: isFreeSpot,
   });
 
   const permit = await prisma.permit.create({

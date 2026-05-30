@@ -6,6 +6,7 @@ import { filterSpotsByBlock } from "../utils/spotFilters";
 import { SALTA_CENTER } from "../utils/zoneGeo";
 import { spotStatusOf } from "../utils/spotMapStyles";
 import { BlockSpotFilter } from "./BlockSpotFilter";
+import { SelectedSpotTable } from "./SelectedSpotTable";
 import { SpotMap } from "./SpotMap";
 import { SpotStatusGrid } from "./SpotStatusGrid";
 import type { ParkingBlock, ParkingZone, Spot } from "../types";
@@ -35,6 +36,7 @@ export function PermitSpotPicker({
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const zone = zones.find((z) => z.code === zoneCode);
 
@@ -62,6 +64,7 @@ export function PermitSpotPicker({
 
   useEffect(() => {
     setLoading(true);
+    setPickerOpen(false);
     void load();
   }, [load]);
 
@@ -106,6 +109,7 @@ export function PermitSpotPicker({
 
     if (nearest && nearest.id !== selectedSpotId) {
       onSpotChange(nearest.id, nearest);
+      setPickerOpen(false);
     }
   }, [
     availableSpots,
@@ -119,7 +123,14 @@ export function PermitSpotPicker({
   useEffect(() => {
     spotTouched.current = false;
     setBlockId("");
+    setPickerOpen(false);
   }, [zoneCode]);
+
+  useEffect(() => {
+    if (!selectedSpotId && !loading && availableSpots.length > 0) {
+      setPickerOpen(true);
+    }
+  }, [selectedSpotId, loading, availableSpots.length]);
 
   const selectedBlock = blocks.find((b) => b.id === blockId);
 
@@ -149,6 +160,7 @@ export function PermitSpotPicker({
     if (spotStatusOf(spot) !== "available") return;
     spotTouched.current = true;
     onSpotChange(spot.id, spot);
+    setPickerOpen(false);
   }
 
   if (!zoneCode) {
@@ -161,39 +173,15 @@ export function PermitSpotPicker({
   }
 
   const freeCount = availableSpots.length;
+  const showCollapsed = Boolean(selectedSpot) && !pickerOpen;
 
   return (
     <div className="cinema-picker">
       <h3 className="cinema-picker-title">Plaza del vehículo</h3>
-      <p className="panel-desc">
-        Se preselecciona la plaza libre más cercana a tu ubicación
-        {zone ? ` en ${zone.name}` : ""}. Podés elegir otra en el mapa o la lista.
-      </p>
 
       {loading && <p className="info-inline">Cargando plazas…</p>}
 
-      {!loading && spots.length > 0 && (
-        <p className="spot-status-count">
-          <strong>{spots.length}</strong> plazas en la zona ·{" "}
-          <strong>{freeCount}</strong> libres
-        </p>
-      )}
-
-      {geo.loading && (
-        <p className="info-inline">Obteniendo ubicación…</p>
-      )}
-      {geo.error && (
-        <p className="info-inline muted">
-          Sin GPS: se usa la primera plaza libre disponible.
-        </p>
-      )}
-
-      {selectedSpot && (
-        <p className="selected-spot-bar">
-          Plaza seleccionada: <strong>{selectedSpot.label}</strong>
-          {selectedSpot.address ? ` · ${selectedSpot.address}` : ""}
-        </p>
-      )}
+      {error && <p className="form-error">{error}</p>}
 
       {!loading && spots.length === 0 && (
         <p className="form-error">No hay plazas registradas en esta zona.</p>
@@ -205,39 +193,73 @@ export function PermitSpotPicker({
         </p>
       )}
 
-      {error && <p className="form-error">{error}</p>}
-
-      {!loading && spots.length > 0 && (
-        <BlockSpotFilter
-          spots={spots}
-          blocks={blocks}
-          blockId={blockId}
-          onBlockIdChange={setBlockId}
-          disabled={disabled}
-        />
+      {showCollapsed && selectedSpot && (
+        <SelectedSpotTable spot={selectedSpot} />
       )}
 
-      {!loading && displaySpots.length > 0 && (
-        <>
-          <SpotMap
-            spots={displaySpots}
-            mode="pick"
-            center={mapCenter}
-            height={280}
-            referenceImageUrl={referenceImageUrl}
-            selectedSpotId={selectedSpotId}
-            onSpotSelect={handleSpotSelect}
-            disabled={disabled}
-            hint="Verde = libre · Rojo = ocupada · Tocá una verde para seleccionar"
-          />
-          <SpotStatusGrid
-            spots={displaySpots}
-            selectedSpotId={selectedSpotId}
-            pickMode
-            disabled={disabled}
-            onSpotClick={handleSpotSelect}
-          />
-        </>
+      {!loading && spots.length > 0 && (
+        <details
+          className="spot-picker-details"
+          open={pickerOpen}
+          onToggle={(e) => setPickerOpen(e.currentTarget.open)}
+        >
+          <summary className="spot-picker-details-summary">
+            {selectedSpot ? "Cambiar plaza" : "Seleccionar plaza"}
+          </summary>
+
+          <div className="spot-picker-details-body">
+            <p className="panel-desc">
+              {selectedSpot
+                ? "Elegí otra plaza en el mapa o la lista."
+                : `Se preselecciona la más cercana${zone ? ` en ${zone.name}` : ""}.`}
+            </p>
+
+            <p className="spot-status-count">
+              <strong>{spots.length}</strong> plazas ·{" "}
+              <strong>{freeCount}</strong> libres
+            </p>
+
+            {geo.loading && (
+              <p className="info-inline">Obteniendo ubicación…</p>
+            )}
+            {geo.error && (
+              <p className="info-inline muted">
+                Sin GPS: se usa la primera plaza libre disponible.
+              </p>
+            )}
+
+            <BlockSpotFilter
+              spots={spots}
+              blocks={blocks}
+              blockId={blockId}
+              onBlockIdChange={setBlockId}
+              disabled={disabled}
+            />
+
+            {displaySpots.length > 0 && (
+              <>
+                <SpotMap
+                  spots={displaySpots}
+                  mode="pick"
+                  center={mapCenter}
+                  height={280}
+                  referenceImageUrl={referenceImageUrl}
+                  selectedSpotId={selectedSpotId}
+                  onSpotSelect={handleSpotSelect}
+                  disabled={disabled}
+                  hint="Verde = libre · Rojo = ocupada · Tocá una verde para seleccionar"
+                />
+                <SpotStatusGrid
+                  spots={displaySpots}
+                  selectedSpotId={selectedSpotId}
+                  pickMode
+                  disabled={disabled}
+                  onSpotClick={handleSpotSelect}
+                />
+              </>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );

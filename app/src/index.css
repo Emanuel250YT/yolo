@@ -2007,6 +2007,51 @@ button:disabled {
   margin-top: 0.75rem;
 }
 
+.selected-spot-table-wrap {
+  margin: 0.75rem 0;
+}
+
+.selected-spot-table-wrap .data-table-wrap {
+  margin: 0;
+}
+
+.spot-free-notice {
+  margin-top: 0.5rem;
+}
+
+.spot-picker-details {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.spot-picker-details-summary {
+  cursor: pointer;
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+
+.spot-picker-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.spot-picker-details-summary::before {
+  content: "▸ ";
+}
+
+.spot-picker-details[open] .spot-picker-details-summary::before {
+  content: "▾ ";
+}
+
+.spot-picker-details-body {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
 .block-select-meta {
   display: block;
   font-size: 0.82rem;

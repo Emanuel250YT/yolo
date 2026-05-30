@@ -191,13 +191,35 @@ export function PermisionarioPanel({
 
   const minutes = form.hours * 60;
 
-  const hasDigitalDiscount = (tariffs?.digitalDiscountRate ?? 0) > 0;
+  const isFreeSpot = selectedSpot?.spotType === "gratuita";
+
+  const hasDigitalDiscount =
+    !isFreeSpot && (tariffs?.digitalDiscountRate ?? 0) > 0;
 
   useEffect(() => {
     if (activeTab !== "nuevo") return;
     let cancelled = false;
     (async () => {
       try {
+        if (isFreeSpot && tariffs) {
+          setCashQuote({
+            plate: form.plate || null,
+            vehicleType: form.vehicleType,
+            minutes,
+            gross: 0,
+            digitalDiscount: 0,
+            net: 0,
+            digitalPayment: false,
+            rules: {
+              toleranceMinutes: tariffs.toleranceMinutes,
+              digitalDiscountRate: tariffs.digitalDiscountRate,
+              fractionMinutes: tariffs.fractionMinutes,
+              fractionFromHour: tariffs.fractionFromHour,
+            },
+          });
+          setMpQuote(null);
+          return;
+        }
         const cash = await api.quote({
           vehicleType: form.vehicleType,
           minutes,
@@ -234,6 +256,8 @@ export function PermisionarioPanel({
     form.plate,
     minutes,
     hasDigitalDiscount,
+    isFreeSpot,
+    tariffs,
   ]);
 
   const mpNet = hasDigitalDiscount ? mpQuote?.net : cashQuote?.net;
@@ -497,12 +521,9 @@ export function PermisionarioPanel({
                       ${cashQuote.net.toLocaleString("es-AR")}
                     </strong>
                     <span className="permit-summary-meta">
-                      Efectivo
-                      {hasDigitalDiscount &&
-                      mpQuote &&
-                      mpQuote.net < cashQuote.net
-                        ? ` · Mercado Pago $${mpQuote.net.toLocaleString("es-AR")} (−${Math.round((tariffs?.digitalDiscountRate ?? 0) * 100)}%)`
-                        : ""}
+                      {isFreeSpot
+                        ? "Plaza gratuita · solo efectivo"
+                        : `Efectivo${hasDigitalDiscount && mpQuote && mpQuote.net < cashQuote.net ? ` · Mercado Pago $${mpQuote.net.toLocaleString("es-AR")} (−${Math.round((tariffs?.digitalDiscountRate ?? 0) * 100)}%)` : ""}`}
                     </span>
                   </div>
                 )}
@@ -602,32 +623,36 @@ export function PermisionarioPanel({
             >
               {submitting
                 ? "Registrando…"
-                : cashQuote
-                  ? `Efectivo · $${cashQuote.net.toLocaleString("es-AR")}`
-                  : "Registrar pago en efectivo"}
+                : isFreeSpot
+                  ? "Registrar · Gratuita · $0"
+                  : cashQuote
+                    ? `Efectivo · $${cashQuote.net.toLocaleString("es-AR")}`
+                    : "Registrar pago en efectivo"}
             </button>
-            <button
-              type="button"
-              className="btn-mp"
-              disabled={
-                submitting ||
-                !form.plate.trim() ||
-                !selectedSpotId ||
-                !user?.mercadoPagoLinked
-              }
-              onClick={() => createPermit("mercadopago")}
-              title={
-                user?.mercadoPagoLinked
-                  ? "Cobrar con Mercado Pago"
-                  : "Vinculá Mercado Pago en Mi cuenta"
-              }
-            >
-              {submitting
-                ? "Registrando…"
-                : mpNet != null
-                  ? `Mercado Pago · $${mpNet.toLocaleString("es-AR")}`
-                  : "Mercado Pago"}
-            </button>
+            {!isFreeSpot && (
+              <button
+                type="button"
+                className="btn-mp"
+                disabled={
+                  submitting ||
+                  !form.plate.trim() ||
+                  !selectedSpotId ||
+                  !user?.mercadoPagoLinked
+                }
+                onClick={() => createPermit("mercadopago")}
+                title={
+                  user?.mercadoPagoLinked
+                    ? "Cobrar con Mercado Pago"
+                    : "Vinculá Mercado Pago en Mi cuenta"
+                }
+              >
+                {submitting
+                  ? "Registrando…"
+                  : mpNet != null
+                    ? `Mercado Pago · $${mpNet.toLocaleString("es-AR")}`
+                    : "Mercado Pago"}
+              </button>
+            )}
           </div>
             </>
           )}
